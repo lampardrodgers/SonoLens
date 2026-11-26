@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>声镜 SonoLens · 音乐可视化分析</title>
+<meta name="description" content="声镜 SonoLens：拖入一首歌，本机用 AI 模型与信号处理完成乐器分离、频谱、节拍、调性和弦、曲式结构、响度与自动扒谱，以数十种交互图表呈现，并可生成逐章讲述的可视化影片。">
+<meta name="theme-color" content="#0a0807">
+<link rel="icon" type="image/svg+xml" href="/web/img/favicon.svg">
+<link rel="stylesheet" href="/web/css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/" aria-label="声镜 SonoLens 首页"><svg class="mark" viewBox="0 0 64 64" width="30" height="30" aria-hidden="true"><g fill="none" stroke-linecap="round"><path d="M19 9.48A26 26 0 1 1 7.57 23.11" stroke="currentColor" stroke-width="3.6"/><path d="M13.87 23.55A20 20 0 0 1 20.53 15.62" stroke="currentColor" stroke-width="2.2" opacity=".55"/><path d="M20 26v12M26 21v22M38 22v20M44 27v10" stroke="currentColor" stroke-width="3.8"/><path d="M32 16v32" stroke="#E5383B" stroke-width="3.8"/></g></svg><span class="wm">声镜</span><span class="en">SonoLens</span></a>
+  <div class="track-title" id="trackTitle"></div>
+  <div class="top-actions">
+    <button class="btn cinema-btn" id="cinemaBtn" hidden title="以电影叙事的方式逐章节播放全部可视化">▶ 影院模式</button>
+    <label class="ctl">色图
+      <select id="cmapSel">
+        <option value="magma">Magma</option><option value="inferno">Inferno</option>
+        <option value="viridis">Viridis</option><option value="gray">Gray</option>
+      </select>
+    </label>
+    <label class="ctl" title="频谱图底噪裁剪：越大越只显示强能量">对比度 <input type="range" id="floorSel" min="0" max="70" value="10"></label>
+    <button class="btn ghost" id="themeBtn" title="切换明暗主题">◐</button>
+  </div>
+</header>
+
+<!-- HOME ----------------------------------------------------------------------->
+<section id="home" hidden>
+  <div class="home-wrap">
+    <div class="hero">
+      <div class="eyebrow">SonoLens · 声镜</div>
+      <h1>听见的，<em>都看得见</em></h1>
+      <p>拖入一首歌，本机完成全部分析：响度、频谱、节拍、鼓组、调性和弦、曲式结构、AI 乐器分离、自动扒谱、立体声像——
+        再以“影院模式”逐章讲述，生成可录制的可视化影片。</p>
+      <div class="feats"><span>乐器分离 6 轨</span><span>频谱 / CQT / 梅尔</span><span>节拍 & 鼓组</span><span>调性 & 和弦</span><span>曲式 & 自相似</span><span>音符转录 MIDI</span><span>影院模式 18 场景</span><span>视频导出</span></div>
+    </div>
+    <div class="drop" id="drop">
+      <input type="file" id="fileIn" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus,.aiff,.aif" hidden>
+      <div class="drop-inner">
+        <div class="drop-title">拖入音乐文件，或 <button class="btn" id="pickBtn">选择文件</button></div>
+        <div class="muted">支持 MP3 / WAV / FLAC / M4A / AAC / OGG / AIFF … 全部在本机处理</div>
+        <div class="opts">
+          <label class="ctl">乐器分离模型
+            <select id="optStems">
+              <option value="htdemucs_6s" selected>htdemucs_6s · 6 轨（人声/鼓/贝斯/吉他/钢琴/其他）</option>
+              <option value="htdemucs">htdemucs · 4 轨（快）</option>
+              <option value="htdemucs_ft">htdemucs_ft · 4 轨（最高质量，慢 4 倍）</option>
+              <option value="none">不分离（最快）</option>
+            </select>
+          </label>
+          <label class="chk"><input type="checkbox" id="optMidi" checked> 音符转录 + MIDI 导出</label>
+          <label class="chk"><input type="checkbox" id="optMelody" checked> 人声/贝斯音高跟踪</label>
+        </div>
+      </div>
+      <div class="job" id="job" hidden>
+        <div class="job-row"><span id="jobMsg">…</span><span id="jobPct"></span></div>
+        <div class="bar"><div id="jobBar"></div></div>
+      </div>
+    </div>
+    <h2 class="h2">已分析的曲目</h2>
+    <div id="library" class="library"></div>
+  </div>
+</section>
+
+<!-- ANALYSIS VIEW -------------------------------------------------------------->
+<section id="view" hidden>
+  <div class="navigator" id="navigator">
+    <div class="nav-head">
+      <div class="nav-info" id="navInfo"></div>
+      <div class="nav-tools">
+        <button class="btn ghost sm" id="zoomOut" title="缩小 (-)">－</button>
+        <button class="btn ghost sm" id="zoomIn" title="放大 (+)">＋</button>
+        <button class="btn ghost sm" id="zoomFit" title="显示全曲 (0)">全曲</button>
+        <label class="chk sm"><input type="checkbox" id="follow" checked> 跟随播放</label>
+      </div>
+    </div>
+    <div id="navCanvas"></div>
+  </div>
+  <div class="layout">
+    <nav class="side" id="side"></nav>
+    <main id="content"></main>
+  </div>
+  <footer class="player" id="player">
+    <button class="btn play" id="playBtn" title="播放/暂停 (空格)">▶</button>
+    <button class="btn ghost" id="stopBtn" title="回到开头">■</button>
+    <div class="time"><span id="tCur">0:00.0</span><span class="muted"> / </span><span id="tDur">0:00</span></div>
+    <div class="pos"><span class="lbl">小节</span><span id="barBeat">–</span></div>
+    <div class="pos"><span class="lbl">和弦</span><span id="curChord">–</span></div>
+    <div class="pos"><span class="lbl">段落</span><span id="curSection">–</span></div>
+    <div class="beat-led" id="beatLed"></div>
+    <div class="grow"></div>
+    <label class="chk sm" title="按检测到的节拍播放节拍器"><input type="checkbox" id="metro"> 节拍器</label>
+    <label class="chk sm" title="循环播放当前视图范围"><input type="checkbox" id="loop"> 循环视图</label>
+    <label class="ctl sm">速度
+      <select id="rate"><option>0.5</option><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option></select>
+    </label>
+    <div class="seg" id="srcMode" title="播放源">
+      <button data-mode="mix" class="on">原曲</button><button data-mode="stems" id="stemsModeBtn">分轨混音</button>
+    </div>
+    <label class="ctl sm">音量 <input type="range" id="vol" min="0" max="1.2" step="0.01" value="0.9"></label>
+  </footer>
+  <div class="tooltip" id="tooltip" hidden></div>
+</section>
+
+<script type="module" src="/web/js/main.js"></script>
+</body>
+</html>

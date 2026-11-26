@@ -1,0 +1,19 @@
+# Python 3.11 recommended. ffmpeg must also be on PATH (brew install ffmpeg).
+numpy>=2.0
+scipy>=1.13
+librosa>=0.11
+soundfile>=0.12
+soxr>=0.5
+pyloudnorm>=0.1.1
+scikit-learn>=1.5
+torch>=2.3
+torchaudio>=2.3
+demucs>=4.0
+basic-pitch>=0.4
+pretty_midi>=0.2.10
+einops>=0.8
+rotary-embedding-torch>=0.6
+beat_this @ https://github.com/CPJKU/beat_this/archive/main.zip
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9

@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+results/
+samples/
+.claude/
+*.mp4
+*.webm
