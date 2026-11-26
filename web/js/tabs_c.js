@@ -11,60 +11,131 @@ import { Feed, PAL, F as FONT, text, line, rgba as rgbaC } from './cinema/fx.js'
 // ------------------------------------------------------------------ immersive scene stage (cinema scenes, live)
 const NEW_SCENES = ['audioring', 'particles', 'mixer', 'chordpiano', 'melody', 'beatpulse', 'stereofield', 'loudmeter', 'kaleido', 'tunnel', 'strings'];
 function sceneStage(root, A, isActive) {
-  const LW = 1340, LH = 790, R = { x: 70, y: 110, w: 1200, h: 640 };
-  const body = card(root, '沉浸场景 · 29 种', '影院模式的全部动态场景都可以在这里单独实时播放。<b>★ 为新增场景</b>。「跟随章节」按自动编排切换，「轮播」每 12 秒换一个。', { cls: 'scene-card' });
-  const bar = h('div', { class: 'scene-bar' });
-  const cv = h('canvas', { class: 'scene-cv' });
-  body.append(bar, cv);
+  const LW = 1340, LH = 790, R = { x: 70, y: 110, w: 1200, h: 640 };          // single view
+  const TW = 1320, TH = 740, TR = { x: 60, y: 60, w: 1200, h: 640 };          // grid tile
+  const body = card(root, '沉浸场景 · 29 种', '影院模式的全部动态场景，播放时实时演出。<b>★ 为新增场景</b>。', { cls: 'scene-card', png: false });
   const names = Object.fromEntries(SCENE_LIST);
   const order = [...NEW_SCENES, ...SCENE_LIST.map(x => x[0]).filter(k => !NEW_SCENES.includes(k))].filter(k => SCENES[k]);
-  let sel = 'audioring', cycle = false, selAt = 0, F = null, lastNow = 0;
+  const label = k => (names[k] || SCENES[k].title).replace(/\s*[✦★]$/, '');
+  const num = k => String(order.indexOf(k) + 1).padStart(2, '0');
+  let view = 'single', sel = 'audioring', cycle = false, selAt = 0, F = null, lastNow = 0;
   const mems = new Map(), mem = k => (mems.has(k) || mems.set(k, {}), mems.get(k));
+
+  // ---- toolbar (card header): view switch + fullscreen
+  const vBtn = (v, txt) => h('button', { class: 'scene-chip mode', 'data-v': v, onclick: () => setView(v) }, txt);
+  const seg = h('div', { class: 'scene-seg' }, vBtn('single', '单场景'), vBtn('grid', `全景 · ${order.length} 宫格`));
+  const fsBtn = h('button', { class: 'btn ghost sm', title: '全屏', onclick: () => (document.fullscreenElement ? document.exitFullscreen() : wrap.requestFullscreen?.()).catch?.(() => {}) }, '⛶ 全屏');
+  body.tools.prepend(seg, fsBtn);
+
+  // ---- single view: side list + canvas
+  const side = h('div', { class: 'scene-side' });
+  const cv = h('canvas', { class: 'scene-cv' });
+  const single = h('div', { class: 'scene-single' }, side, h('div', { class: 'scene-cvbox' }, cv));
   const btns = new Map();
-  const mkBtn = (k, label, cls = '') => { const b = h('button', { class: 'scene-chip ' + cls, onclick: () => pick(k) }, label); btns.set(k, b); return b; };
-  bar.append(mkBtn('@auto', '跟随章节', 'mode'), mkBtn('@cycle', '轮播', 'mode'), h('span', { class: 'scene-sep' }));
-  for (const k of order) bar.append(mkBtn(k, (NEW_SCENES.includes(k) ? '★ ' : '') + (names[k] || SCENES[k].title).replace(/\s*[✦★]$/, ''), NEW_SCENES.includes(k) ? 'new' : ''));
+  const item = k => { const b = h('button', { class: 'scene-item' + (NEW_SCENES.includes(k) ? ' new' : ''), title: SCENES[k].title, onclick: () => pick(k) }, h('i', {}, num(k)), label(k)); btns.set(k, b); return b; };
+  const modeB = (k, txt) => { const b = h('button', { class: 'scene-item mode', onclick: () => pick(k) }, txt); btns.set(k, b); return b; };
+  side.append(
+    h('div', { class: 'scene-h' }, '播放方式'), h('div', { class: 'scene-list' }, modeB('@auto', '⟲ 跟随章节'), modeB('@cycle', '↻ 轮播 12s')),
+    h('div', { class: 'scene-h' }, '★ 新增'), h('div', { class: 'scene-list' }, ...order.filter(k => NEW_SCENES.includes(k)).map(item)),
+    h('div', { class: 'scene-h' }, '经典'), h('div', { class: 'scene-list' }, ...order.filter(k => !NEW_SCENES.includes(k)).map(item)));
+
+  // ---- grid view: one labelled tile per scene
+  const gridEl = h('div', { class: 'scene-grid' });
+  const tiles = order.map(k => {
+    const c = h('canvas');
+    const el = h('div', { class: 'scene-tile' + (NEW_SCENES.includes(k) ? ' new' : ''), title: '点击放大', onclick: () => { pick(k); setView('single'); } },
+      h('div', { class: 'scene-tl' }, h('i', {}, num(k)), h('b', {}, label(k)), NEW_SCENES.includes(k) ? h('em', {}, '新') : null), c);
+    gridEl.append(el);
+    const tl = { k, c, el, last: 0, start: 0, vis: true };
+    new IntersectionObserver(es => { tl.vis = es[0].isIntersecting; }).observe(el);
+    return tl;
+  });
+  const wrap = h('div', { class: 'scene-wrap' }, single, gridEl);
+  body.append(wrap);
+  body.closest('.card')?.classList.add('scene-card-host');
+
+  function layoutGrid() {
+    if (view !== 'grid') return;
+    const fs = document.fullscreenElement === wrap;
+    const W = gridEl.clientWidth || wrap.clientWidth, Hav = fs ? window.innerHeight - 24 : Math.max(420, window.innerHeight - 312);
+    let best = 3;
+    for (let cols = 3; cols <= 10; cols++) {
+      best = cols;
+      const tw = (W - (cols - 1) * 8) / cols, th = tw * TH / TW + 22;
+      if (Math.ceil(order.length / cols) * (th + 8) <= Hav) break;
+    }
+    gridEl.style.gridTemplateColumns = `repeat(${best}, 1fr)`;
+  }
+  function setView(v) {
+    view = v;
+    single.hidden = v !== 'single'; gridEl.hidden = v !== 'grid';
+    seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+    layoutGrid();
+    if (setView.ready && !document.fullscreenElement) wrap.closest('.card')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    setView.ready = true;
+  }
   function pick(k) {
     cycle = k === '@cycle';
     sel = cycle ? (order.includes(sel) ? sel : order[0]) : k;
     selAt = performance.now() / 1000;
     for (const [kk, b] of btns) b.classList.toggle('on', kk === (cycle ? '@cycle' : sel));
   }
-  pick(sel);
+  window.addEventListener('resize', layoutGrid);
+  document.addEventListener('fullscreenchange', layoutGrid);
+  pick(sel); setView('single');
   new Feed(A).load().then(f => { F = f; });
   let visible = true;
-  new IntersectionObserver(es => { visible = es[0].isIntersecting; }).observe(cv);
+  new IntersectionObserver(es => { visible = es[0].isIntersecting; }).observe(wrap);
 
+  const fitCv = (c, lw, lh) => {
+    const dpr = Math.min(2, window.devicePixelRatio || 1), cw = c.clientWidth, chh = cw * lh / lw;
+    if (c.width !== Math.round(cw * dpr)) { c.width = Math.round(cw * dpr); c.height = Math.round(chh * dpr); c.style.height = chh + 'px'; }
+    const g = c.getContext('2d'), k = c.width / lw;
+    g.setTransform(k, 0, 0, k, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+    const bgG = g.createRadialGradient(lw / 2, lh * 0.45, 40, lw / 2, lh * 0.45, lw * 0.75);
+    bgG.addColorStop(0, PAL.bg2); bgG.addColorStop(1, PAL.bg);
+    g.fillStyle = bgG; g.fillRect(0, 0, lw, lh);
+    return g;
+  };
+  const ctx = t => { const ci = F.chapterIdx(t); return [ci, F.chapters[ci] || { start: 0, end: F.dur, roman: 'I', name: '', subtitle: '', facts: [], m: {}, scenes: [] }]; };
+  const run = (g, type, Rr, S) => {
+    g.save(); g.beginPath(); g.rect(Rr.x - 60, Rr.y - 40, Rr.w + 120, Rr.h + 70); g.clip();
+    try { SCENES[type].draw(g, { ...S, R: Rr, mem: mem(type) }); } catch (e) { console.warn('scene', type, e); }
+    g.restore();
+  };
+
+  let rr = 0;
   function frame(ts) {
-    if (!document.body.contains(root)) return;
+    if (!document.body.contains(root)) { window.removeEventListener('resize', layoutGrid); document.removeEventListener('fullscreenchange', layoutGrid); return; }
     requestAnimationFrame(frame);
     if (!isActive() || !visible || !F) return;
     const now = ts / 1000, dt = Math.min(0.1, Math.max(0, now - (lastNow || now))); lastNow = now;
-    const dpr = window.devicePixelRatio || 1, cw = cv.clientWidth, chh = cw * LH / LW;
-    if (cv.width !== Math.round(cw * dpr)) { cv.width = Math.round(cw * dpr); cv.height = Math.round(chh * dpr); cv.style.height = chh + 'px'; }
-    const g = cv.getContext('2d'), k = cv.width / LW;
-    g.setTransform(k, 0, 0, k, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
-    const bgG = g.createRadialGradient(LW / 2, LH * 0.45, 40, LW / 2, LH * 0.45, LW * 0.75);
-    bgG.addColorStop(0, PAL.bg2); bgG.addColorStop(1, PAL.bg);
-    g.fillStyle = bgG; g.fillRect(0, 0, LW, LH);
-    const t = Player.time(), chs = F.chapters;
-    const ci = F.chapterIdx(t), ch = chs[ci] || { start: 0, end: F.dur, roman: 'I', name: '', subtitle: '', facts: [], m: {}, scenes: [] };
+    const t = Player.time(), [ci, ch] = ctx(t);
+    if (view === 'grid') {
+      // round-robin within a time budget so 29 scenes stay smooth
+      const t0 = performance.now(), vis = tiles.filter(x => x.vis);
+      for (let n = 0; n < vis.length; n++) {
+        const tl = vis[(rr + n) % vis.length];
+        const g = fitCv(tl.c, TW, TH);
+        if (!tl.start) tl.start = now;
+        run(g, tl.k, TR, { t, F, ch, chIdx: ci, age: now - tl.start, dt: Math.min(0.1, now - (tl.last || now)), now });
+        tl.last = now;
+        if (performance.now() - t0 > 12) { rr = (rr + n + 1) % Math.max(1, vis.length); return; }
+      }
+      return;
+    }
     if (cycle && now - selAt > 12) { const i = order.indexOf(sel); sel = order[(i + 1) % order.length]; selAt = now; }
     let type = sel;
     if (sel === '@auto') { const s = (ch.scenes || []).find(s => t >= s.start && t < s.end) || ch.scenes?.[0]; type = s?.type || 'spectrumbars'; }
-    const sc = SCENES[type];
-    if (!sc) return;
-    if (type !== frame.type) { frame.type = type; frame.start = now; }
-    // caption
+    const sc = SCENES[type]; if (!sc) return;
+    if (type !== frame.type) { frame.type = type; frame.start = now; for (const [kk, b] of btns) b.classList.toggle('playing', kk === type && sel !== type); }
+    const g = fitCv(cv, LW, LH);
     line(g, 70, 52, 104, 52, PAL.gold, 1.5);
-    const tw = text(g, sc.title, 116, 60, { size: 24, font: FONT.cn, color: PAL.goldHi, weight: 500 });
+    const tw = text(g, `${num(type)}  ${sc.title}`, 116, 60, { size: 24, font: FONT.cn, color: PAL.goldHi, weight: 500 });
     let d = ''; try { d = sc.desc ? sc.desc({ F, ch }) : ''; } catch { }
     text(g, d ? ` · ${d}` : '', 116 + tw, 60, { size: 18, font: FONT.cn, color: PAL.gold, alpha: 0.75, maxW: LW - 330 - tw });
     text(g, `${ch.roman || ''} ${ch.name || ''}`.trim(), LW - 70, 60, { align: 'right', size: 20, font: FONT.cn, color: PAL.ink });
-    g.save(); g.beginPath(); g.rect(R.x - 60, R.y - 40, R.w + 120, R.h + 70); g.clip();
-    try { sc.draw(g, { t, F, R, ch, chIdx: ci, age: now - (frame.start || now), mem: mem(type), dt, now }); } catch (e) { console.warn('scene', type, e); }
-    g.restore();
-    // progress
+    run(g, type, R, { t, F, ch, chIdx: ci, age: now - (frame.start || now), dt, now });
     const p = F.dur ? t / F.dur : 0;
     g.fillStyle = rgbaC(PAL.gold, 0.15); g.fillRect(70, LH - 14, LW - 140, 2);
     g.fillStyle = PAL.gold; g.fillRect(70, LH - 14, (LW - 140) * p, 2);
