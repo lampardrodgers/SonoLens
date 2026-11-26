@@ -1,5 +1,5 @@
 """CLI:  python -m musicviz analyze song.mp3 [--stems htdemucs_6s|htdemucs|htdemucs_ft|none] [--no-midi]
-         python -m musicviz serve [--port 8765]"""
+         python -m musicviz serve [--port 44100]"""
 import argparse
 import sys
 import time
@@ -19,7 +19,7 @@ def main():
     a.add_argument("--force", action="store_true")
     a.add_argument("--out", default=str(ROOT / "results"))
     s = sub.add_parser("serve", help="start the web UI")
-    s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--port", type=int, default=44100)
     s.add_argument("--host", default="127.0.0.1")
     args = ap.parse_args()
 

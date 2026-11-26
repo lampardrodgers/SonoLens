@@ -5,6 +5,72 @@ import { getLut } from './colormap.js';
 import { Player } from './player.js';
 import { TL } from './timeline.js';
 import { url, settings } from './data.js';
+import { SCENES, SCENE_LIST } from './cinema/stage.js';
+import { Feed, PAL, F as FONT, text, line, rgba as rgbaC } from './cinema/fx.js';
+
+// ------------------------------------------------------------------ immersive scene stage (cinema scenes, live)
+const NEW_SCENES = ['audioring', 'particles', 'mixer', 'chordpiano', 'melody', 'beatpulse', 'stereofield', 'loudmeter', 'kaleido', 'tunnel', 'strings'];
+function sceneStage(root, A, isActive) {
+  const LW = 1340, LH = 790, R = { x: 70, y: 110, w: 1200, h: 640 };
+  const body = card(root, '沉浸场景 · 29 种', '影院模式的全部动态场景都可以在这里单独实时播放。<b>★ 为新增场景</b>。「跟随章节」按自动编排切换，「轮播」每 12 秒换一个。', { cls: 'scene-card' });
+  const bar = h('div', { class: 'scene-bar' });
+  const cv = h('canvas', { class: 'scene-cv' });
+  body.append(bar, cv);
+  const names = Object.fromEntries(SCENE_LIST);
+  const order = [...NEW_SCENES, ...SCENE_LIST.map(x => x[0]).filter(k => !NEW_SCENES.includes(k))].filter(k => SCENES[k]);
+  let sel = 'audioring', cycle = false, selAt = 0, F = null, lastNow = 0;
+  const mems = new Map(), mem = k => (mems.has(k) || mems.set(k, {}), mems.get(k));
+  const btns = new Map();
+  const mkBtn = (k, label, cls = '') => { const b = h('button', { class: 'scene-chip ' + cls, onclick: () => pick(k) }, label); btns.set(k, b); return b; };
+  bar.append(mkBtn('@auto', '跟随章节', 'mode'), mkBtn('@cycle', '轮播', 'mode'), h('span', { class: 'scene-sep' }));
+  for (const k of order) bar.append(mkBtn(k, (NEW_SCENES.includes(k) ? '★ ' : '') + (names[k] || SCENES[k].title).replace(/\s*[✦★]$/, ''), NEW_SCENES.includes(k) ? 'new' : ''));
+  function pick(k) {
+    cycle = k === '@cycle';
+    sel = cycle ? (order.includes(sel) ? sel : order[0]) : k;
+    selAt = performance.now() / 1000;
+    for (const [kk, b] of btns) b.classList.toggle('on', kk === (cycle ? '@cycle' : sel));
+  }
+  pick(sel);
+  new Feed(A).load().then(f => { F = f; });
+  let visible = true;
+  new IntersectionObserver(es => { visible = es[0].isIntersecting; }).observe(cv);
+
+  function frame(ts) {
+    if (!document.body.contains(root)) return;
+    requestAnimationFrame(frame);
+    if (!isActive() || !visible || !F) return;
+    const now = ts / 1000, dt = Math.min(0.1, Math.max(0, now - (lastNow || now))); lastNow = now;
+    const dpr = window.devicePixelRatio || 1, cw = cv.clientWidth, chh = cw * LH / LW;
+    if (cv.width !== Math.round(cw * dpr)) { cv.width = Math.round(cw * dpr); cv.height = Math.round(chh * dpr); cv.style.height = chh + 'px'; }
+    const g = cv.getContext('2d'), k = cv.width / LW;
+    g.setTransform(k, 0, 0, k, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+    const bgG = g.createRadialGradient(LW / 2, LH * 0.45, 40, LW / 2, LH * 0.45, LW * 0.75);
+    bgG.addColorStop(0, PAL.bg2); bgG.addColorStop(1, PAL.bg);
+    g.fillStyle = bgG; g.fillRect(0, 0, LW, LH);
+    const t = Player.time(), chs = F.chapters;
+    const ci = F.chapterIdx(t), ch = chs[ci] || { start: 0, end: F.dur, roman: 'I', name: '', subtitle: '', facts: [], m: {}, scenes: [] };
+    if (cycle && now - selAt > 12) { const i = order.indexOf(sel); sel = order[(i + 1) % order.length]; selAt = now; }
+    let type = sel;
+    if (sel === '@auto') { const s = (ch.scenes || []).find(s => t >= s.start && t < s.end) || ch.scenes?.[0]; type = s?.type || 'spectrumbars'; }
+    const sc = SCENES[type];
+    if (!sc) return;
+    if (type !== frame.type) { frame.type = type; frame.start = now; }
+    // caption
+    line(g, 70, 52, 104, 52, PAL.gold, 1.5);
+    const tw = text(g, sc.title, 116, 60, { size: 24, font: FONT.cn, color: PAL.goldHi, weight: 500 });
+    let d = ''; try { d = sc.desc ? sc.desc({ F, ch }) : ''; } catch { }
+    text(g, d ? ` · ${d}` : '', 116 + tw, 60, { size: 18, font: FONT.cn, color: PAL.gold, alpha: 0.75, maxW: LW - 330 - tw });
+    text(g, `${ch.roman || ''} ${ch.name || ''}`.trim(), LW - 70, 60, { align: 'right', size: 20, font: FONT.cn, color: PAL.ink });
+    g.save(); g.beginPath(); g.rect(R.x - 60, R.y - 40, R.w + 120, R.h + 70); g.clip();
+    try { sc.draw(g, { t, F, R, ch, chIdx: ci, age: now - (frame.start || now), mem: mem(type), dt, now }); } catch (e) { console.warn('scene', type, e); }
+    g.restore();
+    // progress
+    const p = F.dur ? t / F.dur : 0;
+    g.fillStyle = rgbaC(PAL.gold, 0.15); g.fillRect(70, LH - 14, LW - 140, 2);
+    g.fillStyle = PAL.gold; g.fillRect(70, LH - 14, (LW - 140) * p, 2);
+  }
+  requestAnimationFrame(frame);
+}
 
 function fitCanvas(cv, hgt) {
   const dpr = window.devicePixelRatio || 1;
@@ -18,11 +84,12 @@ function fitCanvas(cv, hgt) {
 }
 
 export function live(root, A, isActive) {
-  root.append(h('div', { class: 'tab-title' }, '实时可视化'), h('div', { class: 'tab-sub' }, '播放时实时显示频谱、瀑布图、矢量示波器和电平表，并同步显示当前段落 / 和弦 / 小节。按空格播放。'));
+  root.append(h('div', { class: 'tab-title' }, '实时可视化'), h('div', { class: 'tab-sub' }, '播放时实时显示 29 种沉浸场景、频谱、瀑布图、矢量示波器和电平表，并同步显示当前段落 / 和弦 / 小节。按空格播放。'));
   const now = h('div', { class: 'live-now' });
   const mk = l => { const v = h('div', { class: 'v' }, '–'), s = h('div', { class: 's' }, ''); now.append(h('div', { class: 'tile' }, h('div', { class: 'l' }, l), v, s)); return [v, s]; };
   const [secV, secS] = mk('段落'), [chV, chS] = mk('和弦'), [keyV] = mk('调性'), [barV, barS] = mk('小节 . 拍'), [bpmV] = mk('局部 BPM');
   root.append(now);
+  sceneStage(root, A, isActive);
 
   const gridEl = h('div', { class: 'live-grid' }); root.append(gridEl);
   const c1 = card(gridEl, '频谱分析仪', '对数频率，带峰值保持。');

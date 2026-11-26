@@ -419,13 +419,14 @@ def _name_chapters(chs, dur):
 
 
 SCENES_BY_ROLE = {
-    "prologue": ["pianoroll", "chromaclock"], "build": ["rhythmspiral", "drumgrid"],
-    "burst": ["spectrumbars", "chordorbit"], "dark": ["keytrail"], "bright": ["keytrail"],
-    "break": ["oscilloscope"], "climax": ["ridgeline", "lissajous"], "end": ["chromaradar"],
-    "coda": ["radial", "chromaradar"], "fall": ["notefall"], "rise": ["stemgalaxy"],
-    "return": ["chordorbit"], "develop": ["tonnetz"],
+    "prologue": ["strings", "pianoroll"], "build": ["beatpulse", "rhythmspiral", "drumgrid"],
+    "burst": ["particles", "spectrumbars"], "dark": ["tunnel", "keytrail"], "bright": ["kaleido", "keytrail"],
+    "break": ["oscilloscope"], "climax": ["particles", "audioring", "ridgeline"], "end": ["chromaradar"],
+    "coda": ["audioring", "radial"], "fall": ["notefall", "melody"], "rise": ["mixer", "stemgalaxy"],
+    "return": ["chordpiano", "chordorbit"], "develop": ["tonnetz", "melody"],
 }
-POOL = ["chordorbit", "stemgalaxy", "notefall", "spectrumbars", "ridgeline", "rhythmspiral", "radial",
+POOL = ["mixer", "chordpiano", "melody", "audioring", "stereofield", "loudmeter", "kaleido", "tunnel", "strings",
+        "beatpulse", "chordorbit", "stemgalaxy", "notefall", "spectrumbars", "ridgeline", "rhythmspiral", "radial",
         "pianoroll", "tonnetz", "lissajous", "chromaclock", "streamgraph", "keytrail", "drumgrid"]
 
 
@@ -434,7 +435,8 @@ def _assign_scenes(chs):
     for c in chs:
         d = c["end"] - c["start"]
         k = 1 if c["role"] == "break" else int(np.clip(round(d / 21), 1, 3))
-        want = list(SCENES_BY_ROLE.get(c["role"], []))
+        role = SCENES_BY_ROLE.get(c["role"], [])
+        want = [s for s in role if s not in used] or role[:1]
         for s in POOL:
             if len(want) >= k:
                 break

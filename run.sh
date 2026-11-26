@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # MusicViz 一键启动：首次运行自动建虚拟环境并安装依赖，然后启动网页服务。
-# 用法:  ./run.sh                 启动网站 (http://localhost:8765)
+# 用法:  ./run.sh                 启动网站 (http://localhost:44100)
 #        ./run.sh analyze a.mp3   命令行分析音频
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -16,6 +16,6 @@ command -v ffmpeg >/dev/null || { echo "需要 ffmpeg：brew install ffmpeg"; ex
 if [ "${1:-}" = "analyze" ]; then
   shift; exec .venv/bin/python -m musicviz analyze "$@"
 fi
-PORT=${PORT:-8765}
+PORT=${PORT:-44100}
 echo "› 打开 http://localhost:$PORT"
 exec .venv/bin/python -m musicviz serve --port "$PORT"

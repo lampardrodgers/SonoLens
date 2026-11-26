@@ -10,6 +10,7 @@ import * as TA from './tabs_a.js';
 import * as TB from './tabs_b.js';
 import * as TC from './tabs_c.js';
 import { Cinema } from './cinema/stage.js';
+import { aiTab, openSettings } from './ai.js';
 
 const TABS = [
   { id: 'overview', label: '总览', ico: '◎', fn: TA.overview },
@@ -23,6 +24,7 @@ const TABS = [
   { id: 'melody', label: '旋律 / MIDI', ico: '♪', fn: TB.melody },
   { id: 'stereo', label: '立体声', ico: '◐', fn: TB.stereo },
   { id: 'live', label: '实时可视化', ico: '✦', fn: (root, A) => TC.live(root, A, () => current === 'live' && !$('#view').hidden) },
+  { id: 'ai', label: 'AI 解读', ico: '❖', fn: aiTab },
   { id: 'export', label: '导出 / 诊断', ico: '⇩', fn: TC.exportTab },
 ];
 let current = null;
@@ -53,7 +55,7 @@ async function route() {
   $('#cinemaBtn').hidden = !m;
   if (m) {
     $('#home').hidden = true; $('#view').hidden = false;
-    if (D.id !== m[1]) await openAnalysis(m[1]);
+    if (D.id !== m[1]) { closeCinema(); await openAnalysis(m[1]); }
     showTab(m[2] && TABS.some(t => t.id === m[2]) ? m[2] : current || 'overview', false);
     if (m[2] === 'cinema') openCinema(); else closeCinema();
   } else {
@@ -78,6 +80,7 @@ async function openCinema() {
   await c.open(document.body);
 }
 function closeCinema() { if (cinema) { const c = cinema; cinema = null; c.close(); } }
+$('#aiBtn').onclick = () => openSettings();
 $('#cinemaBtn').onclick = () => { if (D.id) location.hash = `#/a/${D.id}/cinema`; };
 
 // ------------------------------------------------------------------ home: upload + library
@@ -392,7 +395,8 @@ TL.onPlayhead(t => {
 // ------------------------------------------------------------------ keyboard
 window.addEventListener('keydown', e => {
   if ($('#view').hidden) return;
-  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName) && e.key !== ' ') return;
+  if (document.activeElement?.tagName === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+  if (['INPUT', 'SELECT'].includes(document.activeElement?.tagName) && e.key !== ' ') return;
   if (document.activeElement?.tagName === 'INPUT' && document.activeElement.type !== 'checkbox' && document.activeElement.type !== 'range') return;
   const k = e.key;
   if (k === ' ') { e.preventDefault(); document.activeElement?.blur?.(); Player.toggle(); }

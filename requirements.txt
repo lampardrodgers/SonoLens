@@ -17,3 +17,6 @@ beat_this @ https://github.com/CPJKU/beat_this/archive/main.zip
 fastapi>=0.110
 uvicorn>=0.29
 python-multipart>=0.0.9
+# AI 解读（可选：只在使用大模型解说时需要）
+anthropic>=2.14
+openai>=3.60

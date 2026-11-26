@@ -3,16 +3,21 @@
 import { W, H, PAL, F as FONT, TONE, Feed, text, line, circle, glowDot, roundRect, clamp, lerp, easeOut, mmss, rgba, wrap, measure } from './fx.js';
 import { scenesA } from './scenes_a.js';
 import { scenesB, drawTitle, drawFinale } from './scenes_b.js';
+import { scenesC } from './scenes_c.js';
 import { Player } from '../player.js';
 import { h } from '../util.js';
+import { AI, openSettings } from '../ai.js';
 
-export const SCENES = { ...scenesA, ...scenesB };
+export const SCENES = { ...scenesA, ...scenesB, ...scenesC };
 export const SCENE_LIST = [
   ['pianoroll', '音高卷帘'], ['chromaclock', '音级时钟'], ['rhythmspiral', '节奏螺旋'], ['spectrumbars', '实时频谱'],
   ['chordorbit', '和弦轨道'], ['keytrail', '调性中心轨迹'], ['oscilloscope', '示波器'], ['ridgeline', '频谱山脊'],
   ['lissajous', '声像 · 李萨如'], ['chromaradar', '音高分布雷达'],
   ['notefall', '音符瀑布 ✦'], ['stemgalaxy', '分轨星系 ✦'], ['radial', '环形声纹 ✦'], ['tonnetz', '音网 Tonnetz ✦'],
   ['streamgraph', '分轨能量河流 ✦'], ['drumgrid', '鼓组步进网格 ✦'], ['ssm', '自相似矩阵 ✦'], ['waterfall', '瀑布频谱 ✦'],
+  ['audioring', '声波光环 ★'], ['particles', '粒子风暴 ★'], ['mixer', '调音台 ★'], ['chordpiano', '和弦钢琴 ★'],
+  ['melody', '旋律线 ★'], ['beatpulse', '节拍脉冲 ★'], ['stereofield', '声场频谱 ★'], ['loudmeter', '响度表 ★'],
+  ['kaleido', '万花筒 ★'], ['tunnel', '声隧道 ★'], ['strings', '十二弦 ★'],
 ];
 
 const MAIN = { x: 90, y: 250, w: 1200, h: 640 };
@@ -44,6 +49,7 @@ export class Cinema {
       h('button', { class: 'cin-btn big', 'data-a': 'play', title: '播放/暂停 (空格)' }, '▶'),
       h('button', { class: 'cin-btn', 'data-a': 'restart', title: '从片头开始' }, '⟲'),
       sceneSel, chSel,
+      h('button', { class: 'cin-btn ai', 'data-a': 'ai', title: 'AI 实时解说：开/关；还没有解说时会用默认模型现场生成 (A)' }, '✦ AI 解说'),
       h('button', { class: 'cin-btn rec', 'data-a': 'rec', title: '把整部影片录制为视频文件（含音频）' }, '● 录制视频'),
       h('button', { class: 'cin-btn', 'data-a': 'full', title: '全屏 (F)' }, '⛶'));
     this.recEl = h('div', { class: 'cin-rec', hidden: true });
@@ -51,6 +57,8 @@ export class Cinema {
     this.el.append(this.cv, this.ui, this.recEl, this.loading);
     root.append(this.el);
     this.sceneSel = sceneSel; this.chSel = chSel; this.playBtn = this.ui.querySelector('[data-a=play]');
+    this.aiBtn = this.ui.querySelector('[data-a=ai]'); this.aiOn = true;
+    AI.narration(this.A.id).catch(() => {});
 
     this._fit = () => {
       const s = Math.min(innerWidth / W, innerHeight / H);
@@ -99,6 +107,23 @@ export class Cinema {
     else if (a === 'restart') { Player.pause(); Player.seek(0); this.phase = 'title'; this.phaseStart = now; this.autoIntro = true; this._state(); }
     else if (a === 'full') { document.fullscreenElement ? document.exitFullscreen() : this.el.requestFullscreen?.(); }
     else if (a === 'rec') this.recording ? this.stopRecording(false) : this.startRecording();
+    else if (a === 'ai') this.toggleAI();
+  }
+  get nar() { return AI.nar.get(this.A.id); }
+  async toggleAI() {
+    const n = this.nar, rid = this.A.id;
+    if (AI.busy.has(rid)) { this.aiOn = !this.aiOn; return; }
+    if (n && (n.moments?.length || n.summary) && !n.error) { this.aiOn = !this.aiOn; return; }
+    const c = await AI.loadConf(true);
+    const p = c.providers.find(x => x.id === c.active);
+    if (!p?.has_key) { if (document.fullscreenElement) await document.exitFullscreen().catch(() => {}); openSettings(); return; }
+    this.aiOn = true;
+    AI.generate(rid, { provider: c.active, style: 'pro' });
+  }
+  aiLabel() {
+    const n = this.nar, busy = AI.busy.has(this.A.id);
+    const s = busy ? `✦ AI 撰写中 ${n?.moments?.length || 0}` : !n || n.error ? '✦ AI 解说' : this.aiOn ? '✦ AI 解说 · 开' : '✦ AI 解说 · 关';
+    if (this.aiBtn.textContent !== s) { this.aiBtn.textContent = s; this.aiBtn.classList.toggle('on', !!(n && !n.error && this.aiOn)); }
   }
   togglePlay() {
     const now = performance.now() / 1000;
@@ -121,6 +146,7 @@ export class Cinema {
     else if (k === 'ArrowRight') this.seek(Player.time() + (e.shiftKey ? 15 : 5));
     else if (k === 'ArrowLeft') this.seek(Player.time() - (e.shiftKey ? 15 : 5));
     else if (k === 'f' || k === 'F') this.action('full');
+    else if (k === 'a' || k === 'A') this.action('ai');
     else if (k === 's' || k === 'S') {
       const keys = ['auto', ...SCENE_LIST.map(s => s[0])];
       this.setMode(keys[(keys.indexOf(this.mode) + (e.shiftKey ? keys.length - 1 : 1)) % keys.length]);
@@ -205,7 +231,10 @@ export class Cinema {
     const pk = now - this.phaseStart;
     try {
       if (this.phase === 'title') {
-        drawTitle(g, F, W, H, now, this.autoIntro ? clamp(pk / 1.6, 0, 1) * (pk > INTRO - 0.8 ? clamp((INTRO - pk) / 0.8, 0, 1) : 1) : 1);
+        const tk = this.autoIntro ? clamp(pk / 1.6, 0, 1) * (pk > INTRO - 0.8 ? clamp((INTRO - pk) / 0.8, 0, 1) : 1) : 1;
+        drawTitle(g, F, W, H, now, tk);
+        const n = this.nar;
+        if (this.aiOn && n?.title) text(g, `✦ AI 解读 ·「${n.title}」`, W / 2, 912, { align: 'center', size: 26, font: FONT.cn, color: PAL.goldHi, alpha: easeOut(tk) * 0.9, ls: 2 });
       } else if (this.phase === 'finale') {
         drawFinale(g, F, W, H, now, clamp(pk / 1.4, 0, 1));
       } else {
@@ -215,6 +244,7 @@ export class Cinema {
       }
     } catch (e) { console.error('cinema frame', e); }
     this.drawCorner(g, t);
+    this.aiLabel();
   }
 
   pickScene(ch, t) {
@@ -250,8 +280,52 @@ export class Cinema {
     drawScene(this.cur, easeOut(k));
 
     this.drawHeader(g, ch, chIdx, SCENES[type], now, t);
-    if (wide) this.drawCenterFacts(g, ch, t); else this.drawFacts(g, ch, t);
+    const sub = this.aiOn ? this.drawNarration(g, t, R, wide) : false;
+    if (wide) { if (!sub) this.drawCenterFacts(g, ch, t); } else this.drawFacts(g, ch, t);
     this.drawTimeline(g, t, chIdx);
+  }
+
+  /** Live AI subtitle: the latest moment ≤ t, typed out at a fixed rate (deterministic in t, so it records too). */
+  drawNarration(g, t, R, wide) {
+    const n = this.nar;
+    if (!n || n.error) return false;
+    const ms = n.moments || [];
+    let i = -1;
+    for (let k = 0; k < ms.length && ms[k].t <= t + 0.05; k++) i = k;
+    const busy = AI.busy.has(this.A.id);
+    const yb = wide ? 812 : 800;
+    let m = i >= 0 ? ms[i] : null, age = m ? t - m.t : 0;
+    if (m) {
+      const nxt = ms[i + 1];
+      const life = Math.min(Math.max(5.5, m.text.length * 0.3 + 2.5), nxt ? nxt.t - m.t : 1e9);
+      if (age > life + 0.6) m = null;
+    }
+    if (!m) {
+      if (busy) text(g, `✦ AI 正在聆听数据并撰写解说…  已完成 ${ms.length} 条`, R.x + R.w / 2, yb + 74, { align: 'center', size: 20, font: FONT.cn, color: PAL.gold, alpha: 0.55 + 0.25 * Math.sin(performance.now() / 300) });
+      return false;
+    }
+    const nxt = ms[i + 1];
+    const life = Math.min(Math.max(5.5, m.text.length * 0.3 + 2.5), nxt ? nxt.t - m.t : 1e9);
+    const a = clamp(age / 0.35, 0, 1) * clamp((life + 0.6 - age) / 0.6, 0, 1);
+    const shown = Math.min(m.text.length, Math.floor(age * 15) + 1);
+    const typing = shown < m.text.length;
+    const lines = wrap(g, m.text.slice(0, shown), R.w - 160, { size: 31, font: FONT.cn }).slice(0, 3);
+    g.save(); g.globalAlpha *= a;
+    const gr = g.createLinearGradient(0, yb - 24, 0, yb + 118);
+    gr.addColorStop(0, 'rgba(10,8,7,0)'); gr.addColorStop(0.3, 'rgba(10,8,7,0.9)'); gr.addColorStop(1, 'rgba(10,8,7,0.95)');
+    g.fillStyle = gr; g.fillRect(R.x - 40, yb - 24, R.w + 80, 142);
+    const cy = yb + 70 - (lines.length - 1) * 21;
+    const tag = `✦ ${mmss(m.t)}`;
+    text(g, tag, R.x + 10, cy - 34 - (lines.length > 1 ? 0 : 0), { size: 15, font: FONT.num, color: PAL.gold, alpha: 0.85, ls: 2 });
+    lines.forEach((s, k) => {
+      const w = text(g, s, R.x + R.w / 2, cy + k * 42, { align: 'center', size: 31, font: FONT.cn, color: PAL.cream, glow: 'rgba(0,0,0,0.9)', blur: 12 });
+      if (typing && k === lines.length - 1 && Math.floor(performance.now() / 400) % 2) {
+        const tw = measure(g, s, { size: 31, font: FONT.cn });
+        g.fillStyle = PAL.gold; g.fillRect(R.x + R.w / 2 + tw / 2 + 4, cy + k * 42 - 26, 3, 30);
+      }
+    });
+    g.restore();
+    return true;
   }
 
   drawHeader(g, ch, chIdx, sc, now, t) {
@@ -307,8 +381,23 @@ export class Cinema {
     const facts = (ch.facts || []).filter(f => f.t <= t + 0.02 && f.kind !== 'center');
     let L = this.layoutFacts(g, facts);
     let tot = L.reduce((a, b) => a + b.hgt, 0);
-    while (L.length > 1 && tot > FACTS.h) { tot -= L[0].hgt; L = L.slice(1); }
-    let y = FACTS.y;
+    let y = FACTS.y, hAvail = FACTS.h;
+    const ct = this.aiOn && this.nar && !this.nar.error ? this.nar.chapters?.[ch.roman] : '';
+    if (ct) {
+      const age = t - ch.start, shown = Math.min(ct.length, Math.floor(age * 22) + 1);
+      const ls = wrap(g, ct, FACTS.w - 30, { size: 20, font: FONT.cn }).slice(0, 6);
+      const full = ls.join(''); let left = shown;
+      const bh = 44 + ls.length * 31;
+      g.save(); g.globalAlpha *= easeOut(age / 0.8);
+      roundRect(g, FACTS.x - 6, y - 8, FACTS.w + 6, bh, 10); g.fillStyle = 'rgba(232,192,106,0.06)'; g.fill(); g.strokeStyle = 'rgba(232,192,106,0.22)'; g.lineWidth = 1; g.stroke();
+      text(g, '✦ AI 章节解说', FACTS.x + 12, y + 18, { size: 15, font: FONT.cn, color: PAL.gold, ls: 2 });
+      ls.forEach((s, k) => { const part = s.slice(0, Math.max(0, left)); left -= s.length; if (part) text(g, part, FACTS.x + 12, y + 50 + k * 31, { size: 20, font: FONT.cn, color: '#e9dcc2' }); });
+      g.restore();
+      void full;
+      y += bh + 18; hAvail -= bh + 18;
+    }
+    while (L.length > 1 && tot > hAvail) { tot -= L[0].hgt; L = L.slice(1); }
+    if (ct && tot > hAvail) L = [];
     line(g, FACTS.x - 30, FACTS.y - 12, FACTS.x - 30, FACTS.y + FACTS.h - 20, 'rgba(232,192,106,0.08)', 1);
     for (const it of L) {
       const f = it.f, a = easeOut((t - f.t) / 0.8), oy = (1 - a) * 26;
