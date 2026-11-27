@@ -1,18 +1,26 @@
-// 3D 声河 tab: the WebGL2 flythrough as its own full-width page (not part of cinema mode).
-// Renders the river3d scene into a 1920×1080 canvas, follows the player, has its own fullscreen bar.
+// Full-width scene pages: one cinema scene rendered into a 1920×1080 canvas that follows the player and has
+// its own transport bar + fullscreen (流光 and the 3D 声河 flythrough).
 import { h, fmtTime } from './util.js';
 import { Player } from './player.js';
 import { TL } from './timeline.js';
 import { Feed, PAL, F as FONT, text } from './cinema/fx.js';
 import { river3d } from './cinema/river3d.js';
+import { aura } from './cinema/aura.js';
 
 const HAS_GL = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
 const LW = 1920, LH = 1080, R = { x: 60, y: 40, w: LW - 120, h: LH - 70 };
 
-export function fly(root, A, isActive) {
-  root.append(
-    h('div', { class: 'tab-title' }, '3D 声河 · 一镜到底'),
-    h('div', { class: 'tab-sub' }, '整首歌变成一条峡谷里的河：时间是纵深（未来迎面而来），两岸山壁是频谱，河道是各乐器（宽度 = 能量），光线是人声旋律，雾色随张力变暖，拱门是段落，光柱是终止式。镜头按段落角色自动运镜。按空格播放，点击画面也可以播放/暂停。'));
+const FLY = {
+  scene: river3d, title: '3D 声河 · 一镜到底',
+  sub: '整首歌变成一条峡谷里的河：时间是纵深（未来迎面而来），两岸山壁是频谱，河道是各乐器（宽度 = 能量），光线是人声旋律，雾色随张力变暖，拱门是段落，光柱是终止式。镜头按段落角色自动运镜。按空格播放，点击画面也可以播放/暂停。',
+};
+export const fly = (root, A, isActive) => scenePage(root, A, isActive, FLY);
+
+/** A cinema scene as its own full-width page: 1920×1080 canvas, transport bar, fullscreen.
+ *  opts: { scene, title, sub, hud (adds a 标注 on/off toggle, key H), legend: [[name, meaning], …] } */
+export function scenePage(root, A, isActive, opts) {
+  const scene = opts.scene;
+  root.append(h('div', { class: 'tab-title' }, opts.title), h('div', { class: 'tab-sub' }, opts.sub));
 
   const cv = h('canvas', { class: 'fly-cv', title: '点击播放 / 暂停' });
   cv.onclick = () => Player.toggle();
@@ -25,14 +33,21 @@ export function fly(root, A, isActive) {
   track.addEventListener('pointerup', () => { track.onpointermove = null; });
   const chap = h('span', { class: 'fly-chap' }, '');
   const fsBtn = h('button', { class: 'scene-fs-btn', title: '全屏（F）', onclick: () => toggleFs() }, '⛶ 全屏');
-  const bar = h('div', { class: 'fly-bar' }, play, cur, track, dur, chap, fsBtn);
+  let hud = localStorage.getItem('mv.sceneHud') !== '0';
+  const hudBtn = opts.hud ? h('button', { class: 'scene-fs-btn', title: '显示 / 隐藏文字标注（H）', onclick: () => toggleHud() }, '') : null;
+  const toggleHud = () => { hud = !hud; localStorage.setItem('mv.sceneHud', hud ? '1' : '0'); syncHud(); };
+  const syncHud = () => { if (hudBtn) hudBtn.textContent = hud ? '标注 · 开' : '标注 · 关'; };
+  syncHud();
+  const bar = h('div', { class: 'fly-bar' }, play, cur, track, dur, chap, hudBtn, fsBtn);
   const wrap = h('div', { class: 'fly-wrap' }, cv, bar);
   root.append(wrap);
+  if (opts.legend) root.append(h('div', { class: 'fly-legend' }, ...opts.legend.map(([k, v]) => h('div', {}, h('b', {}, k), v))));
   const toggleFs = () => (document.fullscreenElement ? document.exitFullscreen() : wrap.requestFullscreen?.())?.catch?.(() => {});
   document.addEventListener('fullscreenchange', () => { fsBtn.textContent = document.fullscreenElement === wrap ? '✕ 退出全屏' : '⛶ 全屏'; });
   window.addEventListener('keydown', e => {
     if (!isActive() || e.target.closest?.('input,textarea,select')) return;
     if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFs(); }
+    else if (opts.hud && (e.key === 'h' || e.key === 'H')) { e.preventDefault(); toggleHud(); }
   });
 
   let F = null, mem = {}, lastNow = 0, visible = true;
@@ -69,7 +84,7 @@ export function fly(root, A, isActive) {
     const ci = F.chapterIdx(t), ch = F.chapters[ci] || { start: 0, end: F.dur, role: 'build', name: '' };
     const lab = `${ch.roman || ''} ${ch.name || ''}`.trim(); if (chap.textContent !== lab) chap.textContent = lab;
     const g = fit();
-    try { river3d.draw(g, { t, F, R, ch, chIdx: ci, age: now, dt, now, mem }); } catch (e) { console.warn('river3d', e); }
+    try { scene.draw(g, { t, F, R, ch, chIdx: ci, age: now, dt, now, mem, hud }); } catch (e) { console.warn('scene page', e); }
     if (HAS_GL && !Player.playing && t < 0.05) {
       g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, 0, LW, LH);
       text(g, '▶  点击画面或按空格开始', LW / 2, LH / 2, { align: 'center', size: 40, font: FONT.cn, color: PAL.cream, glow: 'rgba(0,0,0,0.9)', blur: 12 });
@@ -77,3 +92,21 @@ export function fly(root, A, isActive) {
   }
   requestAnimationFrame(frame);
 }
+
+const AURA = {
+  scene: aura, title: '流光 · 音乐心象', hud: true,
+  sub: '把正在播放的音乐实时画成一幅流动的星云：颜色是氛围与和声，形状是和弦与节奏，流动的方式随段落和这首歌自己的风格而变。按空格播放，H 隐藏文字标注，F 全屏。',
+  legend: [
+    ['星云底色 · 氛围', '大调偏暖、小调偏冷，能量越高越亮，和声张力越大越偏向绯红；每一拍都有一圈涟漪从中心荡开。'],
+    ['12 个方向 · 音级', '按五度圈排列，每个音一种固定颜色。正在响的音会长出花瓣、射出直达画面边缘的光柱——亮起的那半圈就是当前调性。'],
+    ['离中心的距离 · 音高', '越靠外音越高。每个音都拖着彗尾并洒出火花；白色彗星是人声旋律，绕着核心的光团是贝斯。'],
+    ['多边形 · 和弦', '把当前和弦的几个音连起来，白圈是根音。左下角是和弦名、级数和接下来的走向。'],
+    ['冲击环 · 光冠 · 星点', '底鼓把整幅画向外推并放出冲击环和火花，军鼓让光冠和横向光芒闪一下，镲片让星野闪烁；核心外的弧段在数拍子。'],
+    ['莲花纹 · 频段', '核心外三圈花瓣分别跟着低、中、高频呼吸，花瓣数随段落变化。'],
+    ['流场 · 段落', '每类段落有自己的流动方式：安静处「流动」，过渡处「旋涡」或「绽放」，最响的段落「奔涌」；换段时有一次大的光波。'],
+    ['外侧弧线 · 乐器', '表盘之外每件乐器一条轨道，演奏得越响，弧线越长越亮（颜色与右下角的分轨电平一致）。'],
+    ['外环 · 全曲进度', '一圈就是整首歌，按段落分色，白点是现在，金色小刻度是终止式。'],
+    ['质感 · 风格', '律动清晰、打击感强的音乐呈现硬朗的几何和短拖尾；旋律和声主导的音乐像墨在水里慢慢散开。'],
+  ],
+};
+export const auraPage = (root, A, isActive) => scenePage(root, A, isActive, AURA);

@@ -532,3 +532,6 @@ svg.cof .key-on text { fill: #fff; font-weight: 700; }
 .fly-bar .scene-fs-track { flex: 1; }
 .fly-chap { color: #E8C06A; font-size: 12px; white-space: nowrap; min-width: 80px; text-align: right; }
 .fly-wrap:fullscreen { justify-content: center; border-radius: 0; }
+/* legend under a scene page (流光) */
+.fly-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px 22px; margin-top: 14px; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); }
+.fly-legend b { display: block; font-family: var(--serif-cn); font-weight: 600; font-size: 13.5px; color: var(--brand); letter-spacing: .5px; }

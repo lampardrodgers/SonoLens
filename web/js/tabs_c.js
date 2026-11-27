@@ -9,16 +9,16 @@ import { SCENES, SCENE_LIST } from './cinema/stage.js';
 import { Feed, PAL, F as FONT, text, line, rgba as rgbaC } from './cinema/fx.js';
 
 // ------------------------------------------------------------------ immersive scene stage (cinema scenes, live)
-const NEW_SCENES = ['river3d', 'audioring', 'particles', 'mixer', 'chordpiano', 'melody', 'beatpulse', 'stereofield', 'loudmeter', 'kaleido', 'tunnel', 'strings'];
+const NEW_SCENES = ['aura', 'river3d', 'audioring', 'particles', 'mixer', 'chordpiano', 'melody', 'beatpulse', 'stereofield', 'loudmeter', 'kaleido', 'tunnel', 'strings'];
 function sceneStage(root, A, isActive) {
   const LW = 1340, LH = 790, R = { x: 70, y: 110, w: 1200, h: 640 };          // single view
   const TW = 1320, TH = 740, TR = { x: 60, y: 60, w: 1200, h: 640 };          // grid tile
-  const body = card(root, '沉浸场景 · 30 种', '全部动态场景（含 3D 声河），播放时实时演出。<b>★ 为新增场景</b>。', { cls: 'scene-card', png: false });
+  const body = card(root, `沉浸场景 · ${Object.keys(SCENES).length} 种`, '全部动态场景（含流光与 3D 声河），播放时实时演出。<b>★ 为新增场景</b>。', { cls: 'scene-card', png: false });
   const names = Object.fromEntries(SCENE_LIST);
   const order = [...NEW_SCENES, ...SCENE_LIST.map(x => x[0]).filter(k => !NEW_SCENES.includes(k))].filter(k => SCENES[k]);
-  const label = k => (names[k] || SCENES[k].title).replace(/\s*[✦★]$/, '');
+  const label = k => (names[k] || SCENES[k].title).replace(/\s*[✦★✺]$/, '');
   const num = k => String(order.indexOf(k) + 1).padStart(2, '0');
-  let view = 'single', sel = 'audioring', cycle = false, selAt = 0, F = null, lastNow = 0;
+  let view = 'single', sel = 'aura', cycle = false, selAt = 0, F = null, lastNow = 0;
   const mems = new Map(), mem = k => (mems.has(k) || mems.set(k, {}), mems.get(k));
 
   // ---- toolbar (card header): view switch + fullscreen
@@ -178,7 +178,7 @@ function fitCanvas(cv, hgt) {
 }
 
 export function live(root, A, isActive) {
-  root.append(h('div', { class: 'tab-title' }, '实时可视化'), h('div', { class: 'tab-sub' }, '播放时实时显示 30 种沉浸场景、频谱、瀑布图、矢量示波器和电平表，并同步显示当前段落 / 和弦 / 小节。按空格播放。'));
+  root.append(h('div', { class: 'tab-title' }, '实时可视化'), h('div', { class: 'tab-sub' }, '播放时实时显示 31 种沉浸场景、频谱、瀑布图、矢量示波器和电平表，并同步显示当前段落 / 和弦 / 小节。按空格播放。'));
   const now = h('div', { class: 'live-now' });
   const mk = l => { const v = h('div', { class: 'v' }, '–'), s = h('div', { class: 's' }, ''); now.append(h('div', { class: 'tile' }, h('div', { class: 'l' }, l), v, s)); return [v, s]; };
   const [secV, secS] = mk('段落'), [chV, chS] = mk('和弦'), [keyV] = mk('调性'), [barV, barS] = mk('小节 . 拍'), [bpmV] = mk('局部 BPM');

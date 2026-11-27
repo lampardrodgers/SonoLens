@@ -12,10 +12,11 @@ import * as TC from './tabs_c.js';
 import { Cinema } from './cinema/stage.js';
 import { aiTab, openSettings } from './ai.js';
 import { river } from './river.js';
-import { fly } from './fly.js';
+import { fly, auraPage } from './fly.js';
 import { portraitThumb } from './portrait.js';
 
 const TABS = [
+  { id: 'aura', label: '流光', ico: '✺', fn: (root, A) => auraPage(root, A, () => current === 'aura' && !$('#view').hidden) },
   { id: 'river', label: '声河', ico: '≈', fn: river, need: A => A.insight },
   { id: 'fly', label: '3D 声河', ico: '◆', fn: (root, A) => fly(root, A, () => current === 'fly' && !$('#view').hidden), need: A => A.insight },
   { id: 'overview', label: '总览', ico: '◎', fn: TA.overview },
@@ -33,7 +34,7 @@ const TABS = [
   { id: 'export', label: '导出 / 诊断', ico: '⇩', fn: TC.exportTab },
 ];
 let current = null;
-const defaultTab = () => D.A?.insight ? 'river' : 'overview';
+const defaultTab = () => 'aura';
 const built = new Map();
 
 // ------------------------------------------------------------------ theme & global settings
