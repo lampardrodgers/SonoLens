@@ -75,7 +75,9 @@ export function scenePage(root, A, isActive, opts) {
   function frame(ts) {
     if (!document.body.contains(root)) return;
     requestAnimationFrame(frame);
-    const t = Player.time ? Player.time() : TL.playhead, d = Player.duration?.() || A.meta.duration;
+    // what you see should match what you hear: the audio clock runs ahead of the speakers by the output latency
+    const lat = Player.playing ? Math.min(0.35, Player.ctx?.outputLatency || 0) : 0;
+    const t = Player.time ? Math.max(0, Player.time() - lat) : TL.playhead, d = Player.duration?.() || A.meta.duration;
     fill.style.width = (d ? Math.min(100, t / d * 100) : 0) + '%';
     cur.textContent = fmtTime(t, 0);
     const pl = Player.playing ? '❚❚' : '▶'; if (play.textContent !== pl) play.textContent = pl;
@@ -101,7 +103,7 @@ const AURA = {
     ['12 个方向 · 音级', '按五度圈排列，每个音一种固定颜色。正在响的音会长出花瓣、射出直达画面边缘的光柱——亮起的那半圈就是当前调性。'],
     ['离中心的距离 · 音高', '越靠外音越高。每个音都拖着彗尾并洒出火花；白色彗星是人声旋律，绕着核心的光团是贝斯。'],
     ['多边形 · 和弦', '把当前和弦的几个音连起来，白圈是根音。左下角是和弦名、级数和接下来的走向。'],
-    ['冲击环 · 光冠 · 星点', '底鼓把整幅画向外推并放出冲击环和火花，军鼓让光冠和横向光芒闪一下，镲片让星野闪烁；核心外的弧段在数拍子。'],
+    ['冲击环 · 光冠 · 星点', '底鼓把整幅画向外推并放出冲击环和火花，军鼓让光冠和横向光芒闪一下，镲片让星野闪烁；核心外的弧段在数拍子。只有全曲最重的几下和换段时，画面才会震一下并荡开一圈扭曲整幅画的大波纹。'],
     ['莲花纹 · 频段', '核心外三圈花瓣分别跟着低、中、高频呼吸，花瓣数随段落变化。'],
     ['流场 · 段落', '每类段落有自己的流动方式：安静处「流动」，过渡处「旋涡」或「绽放」，最响的段落「奔涌」；换段时有一次大的光波。'],
     ['外侧弧线 · 乐器', '表盘之外每件乐器一条轨道，演奏得越响，弧线越长越亮（颜色与右下角的分轨电平一致）。'],

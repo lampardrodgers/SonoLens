@@ -57,7 +57,8 @@ const lch = (L, C, hDeg) => [L, C * Math.cos(hDeg * Math.PI / 180), C * Math.sin
 const css = (c, a = 1) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${a})`;
 const mix3 = (p, q, k) => [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k, p[2] + (q[2] - p[2]) * k];
 // one fixed hue per pitch class, a smooth wheel around the circle of fifths: sharp side warm → green, flat side blue → magenta
-const PC_RGB = Array.from({ length: 12 }, (_, pc) => lab2rgb(...lch(0.80, 0.165, 25 + fpos(pc) * 30)));
+// neighbours on the wheel alternate light / deep so that two adjacent notes never look alike
+const PC_RGB = Array.from({ length: 12 }, (_, pc) => { const f = fpos(pc); return lab2rgb(...lch(f % 2 ? 0.70 : 0.87, f % 2 ? 0.20 : 0.16, 25 + f * 30)); });
 const WHITE = [1, 0.97, 0.92];
 const PC_FIFTHS = new Float32Array(36);                    // the same colours ordered by position on the circle of fifths
 for (let k = 0; k < 12; k++) PC_FIFTHS.set(PC_RGB[(k * 7) % 12], k * 3);
@@ -135,6 +136,23 @@ class Song {
       const vs = (hsrc.v || []).slice().sort((a, b) => a - b), ref = vs.length ? Math.max(0.05, vs[Math.floor(vs.length * 0.9)]) : 1;
       this.drums[hsrc.name] = { t: hsrc.t, v: hsrc.t.map((_, i) => clamp((hsrc.v?.[i] ?? ref) / ref, 0.25, 1.25)), i: 0 };
     }
+    // kick / snare: prefer the loudness-true accent list (drums.accents); the pattern-grid `hits` are far too sensitive
+    // (ghost notes, bleed) and their strength is not loudness, so without accents keep only the clear local maxima
+    const acc = A.drums?.accents;
+    for (const name of ['kick', 'snare']) {
+      const a = acc?.find(x => x.name === name), d = this.drums[name];
+      if (a) { if (a.t.length) this.drums[name] = { t: a.t, v: a.v.map(v => clamp(v, 0.3, 1.3)), i: 0 }; else delete this.drums[name]; }
+      else if (d) {
+        const t = [], v = [];
+        for (let i = 0; i < d.t.length; i++) {
+          if (d.v[i] < 0.6) continue;
+          let top = true; for (let j = i - 1; j >= 0 && d.t[i] - d.t[j] < 0.12; j--) if (d.v[j] >= d.v[i]) top = false;
+          for (let j = i + 1; j < d.t.length && d.t[j] - d.t[i] < 0.12; j++) if (d.v[j] > d.v[i]) top = false;
+          if (top) { t.push(d.t[i]); v.push(d.v[i]); }
+        }
+        this.drums[name] = { t, v, i: 0 };
+      }
+    }
     this.hasDrums = !!(this.drums.kick || this.drums.snare);
     const secs = I.sections?.length ? I.sections : A.structure?.segments || [];
     this.secs = secs.map(s => ({ start: s.start, end: s.end, label: s.label, prime: s.prime || s.label, hint: (s.hint || '').split(' ')[0], occ: s.occurrence || 0 }));
@@ -207,7 +225,7 @@ void main() {
   q -= curl(p * 1.4 + vec2(0.0, uTime * 0.07)) * uTurb * uDt;
   vec3 prev = texture(uPrev, q / (uAsp * 2.0) + uC).rgb;
   float lum = dot(prev, vec3(0.3, 0.55, 0.15));
-  prev = mix(prev, lum * uTint * 1.8, clamp(0.45 * uDt, 0.0, 1.0));     // old light slowly takes the colour of the air
+  prev = mix(prev, lum * uTint * 1.8, clamp(0.10 * uDt, 0.0, 1.0));     // old light takes the colour of the air only very slowly, so a trail keeps its note's colour
   prev *= uFade;
   vec2 e = smoothstep(vec2(0.0), vec2(0.02), vUv) * smoothstep(vec2(0.0), vec2(0.02), 1.0 - vUv);
   prev *= e.x * e.y;
@@ -229,6 +247,7 @@ uniform vec2 uAsp, uC;
 uniform vec3 uColA, uColB, uColC;
 uniform vec3 uPc[12];
 uniform float uChroma[12];
+uniform vec3 uRp[3];                 // shock ripples: (radius, strength, -)
 uniform float uTime, uNow, uEnergy, uTension, uBeat, uShock, uFlash, uGeo, uSym, uSpin, uGrain, uSeed, uKick, uSnare, uHat, uRipR, uRipA, uRm;
 ${NOISE}
 float starLayer(vec2 q, float seed) {
@@ -240,6 +259,10 @@ float starLayer(vec2 q, float seed) {
 }
 void main() {
   vec2 p = (vUv - uC) * uAsp * 2.0;
+  // big drum hits send a ring through the whole picture that bends everything it passes (like a wave in water)
+  float r0 = length(p), rim = 0.0; vec2 dn0 = p / max(r0, 1e-3), dp = vec2(0.0);
+  for (int i = 0; i < 3; i++) { float dd = r0 - uRp[i].x, gw = exp(-dd * dd * 60.0) * uRp[i].y; dp -= dn0 * dd * gw * 0.9; rim += exp(-dd * dd * 450.0) * uRp[i].y; }
+  p += dp; vec2 uvs = vUv + dp / (uAsp * 2.0);
   float r = length(p), a = atan(p.y, p.x);
   float seg = 6.2831853 / uSym, af = abs(mod(a + uSpin, seg) - seg * 0.5);
   vec2 bp = mix(p, r * vec2(cos(af), sin(af)) * 1.3, uGeo) + uSeed;         // geometric styles fold the air into N mirrors
@@ -274,15 +297,16 @@ void main() {
   float sf = starLayer(sp * 11.0 * (1.0 - 0.06 * uKick), 1.0) + 0.6 * starLayer(sp * 21.0 * (1.0 - 0.03 * uKick) + 40.0, 2.0) + 0.35 * starLayer(p * 33.0 + 80.0, 3.0);
   bg += mix(vec3(1.0, 0.96, 0.9), uColB, 0.3) * sf * (0.3 + 0.5 * uEnergy + 1.4 * uHat);
   // ---- the light itself: feedback trails + bloom + today's ink
-  vec2 d = vUv - uC;
+  vec2 d = uvs - uC;
   float ca = 0.0012 + 0.011 * uShock;
-  vec3 fb = vec3(texture(uFb, vUv - d * ca).r, texture(uFb, vUv).g, texture(uFb, vUv + d * ca).b);
-  vec3 bl = texture(uB1, vUv).rgb * 0.45 + texture(uB2, vUv).rgb * 0.45 + texture(uB3, vUv).rgb * 0.4;
-  vec3 col = bg + fb * 0.85 + bl * (0.42 + 0.25 * uEnergy) + pow(texture(uInk, vUv).rgb, vec3(1.6)) * (0.3 + 0.8 * (1.0 - smoothstep(0.08, 0.26, r)) + 1.1 * smoothstep(1.02, 1.07, r / uRm));
+  vec3 fb = vec3(texture(uFb, uvs - d * ca).r, texture(uFb, uvs).g, texture(uFb, uvs + d * ca).b);
+  vec3 bl = texture(uB1, uvs).rgb * 0.45 + texture(uB2, uvs).rgb * 0.45 + texture(uB3, uvs).rgb * 0.4;
+  vec3 col = bg + fb * 0.85 + bl * (0.42 + 0.25 * uEnergy) + pow(texture(uInk, uvs).rgb, vec3(1.6)) * (0.3 + 0.8 * (1.0 - smoothstep(0.08, 0.26, r)) + 1.1 * smoothstep(1.02, 1.07, r / uRm));
   col += mix(uColC, vec3(1.0), 0.65) * (1.6 * exp(-r * r * 700.0) + 0.3 * exp(-r * r * 90.0)) * (0.55 + 0.5 * uEnergy + 0.6 * uKick);   // the core: a small sun
   col += uColC * uFlash * 0.3 * (0.35 + halo);
   float flare = exp(-abs(p.y) * 30.0) / (1.0 + p.x * p.x * 1.2);            // anamorphic streak on snare / section change
   col += mix(uColC, vec3(1.0), 0.35) * flare * (0.22 * uSnare + 0.7 * uFlash + 0.07 * uKick);
+  col += mix(uColC, vec3(1.0), 0.5) * rim * 0.4;
   col = 1.0 - exp(-col * 1.2);
   col = mix(col, col * col * (3.0 - 2.0 * col), 0.2 + 0.35 * uTension);
   col *= mix(1.0, 0.5, smoothstep(0.6, 1.9, length((vUv - 0.5) * vec2(1.15, 1.0) * 2.0)));
@@ -390,7 +414,7 @@ class Engine {
     this.pass(this.pComp, null, { uFb: dst.tex, uB1: this.blurs[1].tex, uB2: this.blurs[5].tex, uB3: this.blurs[9].tex, uInk: this.inkTex },
       { ...geom, uColA: U.colA, uColB: U.colB, uColC: U.colC, uTime: U.time, uNow: U.now, uEnergy: U.energy, uTension: U.tension, uBeat: U.beat,
         uShock: U.shock, uFlash: U.flash, uGeo: U.geo, uSym: U.sym, uSpin: U.spin, uGrain: U.grain, uSeed: U.seed,
-        uKick: U.kick, uSnare: U.snare, uHat: U.hat, uRipR: U.ripR, uRipA: U.ripA, uPc: PC_FIFTHS, uChroma: U.chroma });
+        uKick: U.kick, uSnare: U.snare, uHat: U.hat, uRipR: U.ripR, uRipA: U.ripA, uPc: PC_FIFTHS, uChroma: U.chroma, uRp: U.rp });
   }
 }
 
@@ -400,7 +424,7 @@ const newState = () => ({
   lastT: -9, E: 0, Es: 0.3, T: 0.3, kick: 0, snare: 0, hat: 0, shock: 0, flash: 0, beat: 0, beatIdx: -2, si: -1, flow: 0, spin: 0,
   amp: new Float32Array(NS), raw: new Float32Array(NS), rings: [], sparks: [], lastRing: 0,
   colA: [0.05, 0.05, 0.1], colB: [0.2, 0.2, 0.35], colC: [0.8, 0.7, 0.5], poly: null, polyA: 0, root: null, val: 0.5,
-  fm: { ...FORMS.vortex }, sym: 8, parts: [], band: [0, 0, 0], chrF: new Float32Array(12), stemLv: new Float32Array(8), ripR: 0, ripA: 0,
+  fm: { ...FORMS.vortex }, sym: 8, parts: [], band: [0, 0, 0], chrF: new Float32Array(12), stemLv: new Float32Array(8), ripR: 0, ripA: 0, shake: 0, lastShock: -9, lastHit: -9, shocks: [], rp: new Float32Array(9),
 });
 const turn = d => { d = (d + Math.PI) % TAU; if (d < 0) d += TAU; return d - Math.PI; };       // shortest signed arc
 
@@ -417,14 +441,26 @@ function advance(F, t, now, dt) {
     const r = Math.hypot(x, y) || 1e-3, j = (Math.random() - 0.5) * spread, c = Math.cos(j), sn = Math.sin(j), ux = x / r, uy = y / r;
     st.parts.push({ x, y, vx: (ux * c - uy * sn) * speed, vy: (ux * sn + uy * c) * speed, pc, s, t0: now, life });
   };
+  // The big effect — frame shake + a ripple that bends the whole picture — is kept rare so it stays an event: section
+  // changes, and the hardest hits of the song when they land on a downbeat or break a silence. At least a bar apart.
+  const bt = F.beatAt(t), bd = 60 / (F.bpmAt(t) || 120);
+  const shock = (amp, life) => { st.lastShock = now; st.shocks.push({ t0: now, life, a: amp }); if (st.shocks.length > 3) st.shocks.shift(); st.shake = Math.max(st.shake, Math.min(1, amp)); };
+  const impact = (v, life) => {
+    const gap = now - st.lastHit, since = now - st.lastShock; st.lastHit = now;
+    if (v < 0.95 || st.E < 0.3 || since < bd * 4) return;
+    const down = bt.pos === 1 && bt.since < 0.1, breakIn = gap > bd * 1.5;
+    if (down || breakIn || (v >= 1.2 && since > bd * 8)) shock(clamp(0.55 + 0.4 * v, 0.6, 1.1) * (breakIn ? 1.15 : 1), life);
+  };
   const fire = (name, v) => {
+    if (name === 'kick' && S.hasDrums) impact(v, 0.95); else if (name === 'snare') impact(v, 0.75);
+    const w = name === 'hihat' ? v : Math.min(1.15, Math.pow(v, 1.6));      // quiet hits stay quiet: only real hits read as hits
     if (name === 'kick') {
-      st.kick = Math.max(st.kick, v);
-      if (v > 0.5 && now - st.lastRing > 0.12) {
-        st.lastRing = now; st.rings.push({ t0: now, life: 0.8, a: 0.42 * v, w: 1 });
-        for (let i = 0, n = Math.round(12 + 22 * v); i < n; i++) { const a = Math.random() * TAU; emit(Math.cos(a) * 0.1, Math.sin(a) * 0.1, -1, 0.45 + 0.75 * Math.random(), 0.7 + 0.8 * Math.random(), 0.7 + 0.9 * Math.random(), 0.25); }
+      st.kick = Math.max(st.kick, w);
+      if (v > 0.7 && now - st.lastRing > 0.12) {
+        st.lastRing = now; st.rings.push({ t0: now, life: 0.8, a: 0.42 * w, w: 1 });
+        for (let i = 0, n = Math.round(8 + 26 * w); i < n; i++) { const a = Math.random() * TAU; emit(Math.cos(a) * 0.1, Math.sin(a) * 0.1, -1, 0.45 + 0.75 * Math.random(), 0.7 + 0.8 * Math.random(), 0.7 + 0.9 * Math.random(), 0.25); }
       }
-    } else if (name === 'snare') { st.snare = Math.max(st.snare, v); st.shock = Math.max(st.shock, 0.75 * v); }
+    } else if (name === 'snare') { st.snare = Math.max(st.snare, w); st.shock = Math.max(st.shock, 0.75 * w); }
     else if (name === 'hihat') {
       st.hat = Math.max(st.hat, v);
       for (let i = 0, n = 2 + Math.round(v * 3); i < n && st.sparks.length < 90; i++) st.sparks.push({ a: Math.random() * TAU, r: 0.26 + Math.random() * 0.68, t0: now, life: 0.18 + Math.random() * 0.2, s: 0.5 + Math.random() * v });
@@ -433,22 +469,21 @@ function advance(F, t, now, dt) {
   for (const name of ['kick', 'snare', 'hihat']) {
     const d = S.drums[name]; if (!d) continue;
     if (seek) d.i = upper(d.t, t);
-    else while (d.i < d.t.length && d.t[d.i] <= t) fire(name, d.v[d.i++]);
+    else while (d.i < d.t.length && d.t[d.i] <= t + 0.02) fire(name, d.v[d.i++]);      // 20 ms early ≈ the frame it lands on
   }
-  const bt = F.beatAt(t);
   if (bt.idx !== st.beatIdx) {
     if (!seek && bt.idx >= 0) { st.beat = bt.pos === 1 ? 1 : 0.55; if (!S.hasDrums) fire('kick', bt.pos === 1 ? 1 : 0.6); }
     st.beatIdx = bt.idx;
   }
   const si = S.secIdx(t);
   if (si !== st.si) {
-    if (!seek && st.si >= 0) { st.flash = 1; st.shock = Math.max(st.shock, 0.8); st.rings.push({ t0: now, life: 1.5, a: 0.8, w: 2.4 }); }
+    if (!seek && st.si >= 0) { shock(1.4, 1.7); st.flash = 1; st.shock = Math.max(st.shock, 0.8); st.rings.push({ t0: now, life: 1.5, a: 0.8, w: 2.4 }); }
     st.si = si;
   }
   const sec = S.secs[si], fmT = sec?.form || FORMS.vortex, kf = seek ? 1 : k(0.9);
   for (const n of ['zoom', 'vort', 'petal', 'wave', 'turb']) st.fm[n] = lerp(st.fm[n], n === 'vort' ? fmT.vort * (sec?.dir || 1) : fmT[n], kf);
   st.sym = sec?.sym || D.sym; st.form = fmT;
-  const bd = 60 / (F.bpmAt(t) || 120), bph = bt.idx >= 0 ? clamp(bt.since / bd, 0, 1.2) : 1.2;
+  const bph = bt.idx >= 0 ? clamp(bt.since / bd, 0, 1.2) : 1.2;
   st.ripR = bph * 1.9; st.ripA = st.playing ? Math.pow(Math.max(0, 1 - bph), 1.5) * (bt.pos === 1 ? 1 : 0.5) : 0;
   // atmosphere: mode of the local key + the song's own valence → warm/cool; energy and tension do the rest
   const key = F.keyAt(t), minor = key != null && key >= 12;
@@ -514,6 +549,11 @@ function advance(F, t, now, dt) {
   const speed = st.playing ? 1 : 0.35;
   st.flow += dt * D.tf * (0.35 + 1.3 * st.E) * speed;
   st.spin += dt * D.rot * 0.35 * speed;
+  st.shake *= Math.exp(-dt * 8);
+  st.shocks = st.shocks.filter(r => now - r.t0 < r.life && now >= r.t0);
+  st.rp.fill(0);
+  st.shocks.forEach((r, i) => { const k = (now - r.t0) / r.life; st.rp[i * 3] = lerp(0.06, 2.4, easeOut(k)); st.rp[i * 3 + 1] = r.a * Math.pow(1 - k, 1.4); });
+  if (seek) { st.shocks.length = 0; st.rp.fill(0); st.shake = 0; }
   st.rings = st.rings.filter(r => now - r.t0 < r.life);
   st.sparks = st.sparks.filter(p => now - p.t0 < p.life);
   st.seek = seek;
@@ -639,9 +679,14 @@ function drawDial(g, F, t, cx, cy, Rm, labels) {
     const pts = st.poly.map(a => [cx + Math.cos(a) * Rm * R_POLY, cy + Math.sin(a) * Rm * R_POLY]);
     g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
     g.globalAlpha = A0 * st.polyA; g.fillStyle = css(st.colC, 0.05); g.fill();
-    g.shadowColor = css(st.colC, 0.9); g.shadowBlur = 14 * u; g.strokeStyle = css(mix3(st.colC, WHITE, 0.25), 0.8); g.lineWidth = Math.max(1.2, 1.7 * u); g.lineJoin = 'round'; g.stroke();
+    g.lineJoin = 'round';
+    g.strokeStyle = 'rgba(3,4,9,0.5)'; g.lineWidth = Math.max(4, 6.5 * u); g.stroke();              // dark casing: stays readable over bright light, invisible on dark
+    g.shadowColor = css(st.colC, 0.9); g.shadowBlur = 10 * u; g.strokeStyle = css(mix3(st.colC, WHITE, 0.55), 0.95); g.lineWidth = Math.max(1.5, 2.2 * u); g.stroke();
     g.shadowBlur = 0;
-    for (const [x, y] of pts) { g.beginPath(); g.arc(x, y, 3 * u + 1, 0, TAU); g.fillStyle = css(mix3(st.colC, WHITE, 0.5)); g.fill(); }
+    for (const [x, y] of pts) {
+      g.beginPath(); g.arc(x, y, 5.5 * u + 1.5, 0, TAU); g.fillStyle = 'rgba(3,4,9,0.6)'; g.fill();
+      g.beginPath(); g.arc(x, y, 3.6 * u + 1, 0, TAU); g.fillStyle = css(mix3(st.colC, WHITE, 0.65)); g.fill();
+    }
     if (st.root != null) { g.beginPath(); g.arc(cx + Math.cos(st.root) * Rm * R_POLY, cy + Math.sin(st.root) * Rm * R_POLY, 6.5 * u + 1.5, 0, TAU); g.strokeStyle = css(WHITE, 0.9); g.lineWidth = Math.max(1, 1.5 * u); g.stroke(); }
   }
   if (labels) { g.globalAlpha = A0 * 0.22; g.beginPath(); g.arc(cx, cy, Rm * R_NAME, 0, TAU); g.strokeStyle = '#04050a'; g.lineWidth = Rm * 0.085; g.stroke(); }
@@ -652,8 +697,9 @@ function drawDial(g, F, t, cx, cy, Rm, labels) {
     const x = cx + Math.cos(a) * Rm * R_NAME, y = cy + Math.sin(a) * Rm * R_NAME;
     g.globalAlpha = A0 * (inKey ? 0.55 : 0.2); g.beginPath(); g.arc(cx + Math.cos(a) * Rm * (R_POLY + 0.022), cy + Math.sin(a) * Rm * (R_POLY + 0.022), (inKey ? 1.8 : 1.2) * u + 0.6, 0, TAU); g.fillStyle = css(c); g.fill();
     if (!labels) continue;
+    g.globalAlpha = A0 * (0.6 + 0.4 * v); g.beginPath(); g.arc(cx, cy, Rm * (R_NAME + 0.046), a - 0.215, a + 0.215); g.strokeStyle = css(c); g.lineWidth = Math.max(2, (3 + 3 * v) * u); g.stroke();   // colour key: this arc IS the note's colour
     g.globalAlpha = A0;
-    text(g, F.fifthName(pc), x, y + 6 * u, { align: 'center', size: Math.max(11, (15 + 7 * v) * u), font: FONT.num, weight: pc === tonic ? 700 : 500, color: css(mix3(c, WHITE, 0.25 * v)), alpha: (inKey ? 0.42 : 0.2) + 0.58 * v, glow: css(c, 0.8 * v), blur: 12 * u });
+    text(g, F.fifthName(pc), x, y + 6 * u, { align: 'center', size: Math.max(12, (17 + 8 * v) * u), font: FONT.num, weight: pc === tonic ? 700 : 600, color: css(mix3(c, WHITE, 0.25 * v)), alpha: (inKey ? 0.78 : 0.45) + 0.22 * v, glow: css(c, 0.8 * v), blur: 12 * u });
     if (pc === tonic) { g.globalAlpha = A0 * 0.7; g.beginPath(); g.arc(x, y, 17 * u + 3, 0, TAU); g.strokeStyle = css(c); g.lineWidth = 1; g.stroke(); }
   }
   // song ring: sections as arcs, played part bright; cadences as ticks; playhead
@@ -714,6 +760,8 @@ function drawHud(g, F, t, R, Rm) {
     const w = text(g, ch.label, x0, cy0, { size: fs(54), font: FONT.num, weight: 500, color: col, glow: css(PC_RGB[ch.root], 0.5), blur: 18 * u });
     text(g, ch.roman_local || ch.roman || '', x0 + w + fs(14), cy0 - fs(22), { size: fs(22), font: FONT.num, weight: 600, color: PAL.cream, alpha: 0.9 });
     text(g, FUNC_CN[fn] ? `${FUNC_CN[fn]}功能` : '', x0 + w + fs(14), cy0, { size: fs(14), font: FONT.cn, color: PAL.gray });
+    let tx = x0 + w + fs(92);                                   // the chord's notes, each in its dial colour
+    for (const iv of QI[ch.quality]) { const pc = (ch.root + iv) % 12; tx += text(g, F.fifthName(pc), tx, cy0 - fs(8), { size: fs(22), font: FONT.num, weight: 600, color: css(PC_RGB[pc]), ...shadow }) + fs(12); }
     const p = clamp((t - ch.start) / Math.max(0.1, ch.end - ch.start), 0, 1);
     g.globalAlpha = A0 * 0.9; g.fillStyle = col; g.fillRect(x0, cy0 + fs(10), Math.max(fs(60), w) * p, Math.max(2, 2.5 * u)); g.globalAlpha = A0;
   } else text(g, '—', x0, cy0, { size: fs(54), font: FONT.num, color: PAL.dim });
@@ -769,10 +817,12 @@ export const aura = {
       petal: Math.max(st.fm.petal, 0.45 * D.geo), wave: st.fm.wave, turb: D.turb * st.fm.turb * (0.5 + 1.3 * st.T),
       fade: Math.exp(-dt * Math.LN2 / (D.tau * (0.75 + 0.5 * (1 - st.E)))), gain: 18 * dt,
       geo: D.geo, sym: st.sym, spin: st.spin, grain: D.grain,
-      kick: Math.min(1, st.kick), snare: Math.min(1, st.snare), hat: Math.min(1, st.hat), ripR: st.ripR, ripA: st.ripA, chroma: st.chrF,
+      kick: Math.min(1, st.kick), snare: Math.min(1, st.snare), hat: Math.min(1, st.hat), ripR: st.ripR, ripA: st.ripA, chroma: st.chrF, rp: st.rp,
       colA: st.colA, colB: st.colB, colC: st.colC, energy: st.E, tension: st.T, beat: st.beat, shock: st.shock, flash: st.flash,
     });
-    g.drawImage(eng.cv, RR.x, RR.y, RR.w, RR.h);
+    const sh = st.playing ? st.shake : 0, sc = 1 + 0.022 * sh + 0.006 * Math.min(1, st.kick);      // shake + a small zoom punch
+    const sx = (Math.random() - 0.5) * 2 * sh * Rm * 0.02, sy = (Math.random() - 0.5) * 2 * sh * Rm * 0.02;
+    g.drawImage(eng.cv, RR.x - RR.w * (sc - 1) / 2 + sx, RR.y - RR.h * (sc - 1) / 2 + sy, RR.w * sc, RR.h * sc);
     const labels = Sx.hud !== false;
     drawDial(g, F, t, cxm, cym, Rm, labels);
     if (labels) drawHud(g, F, t, R, Rm);

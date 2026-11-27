@@ -86,7 +86,60 @@ def analyze(y: np.ndarray, beats: np.ndarray, downbeats: np.ndarray, bpb: int) -
         "patterns": patterns,
         "bar_pattern_ids": _ids(bar_patterns),
         "density_per_bar": [sum(r.count("x") for r in p) for p in bar_patterns],
+        "accents": accents(y),
     }
+
+
+ACCENT_BANDS = [("kick", 35, 130), ("snare", 180, 2500)]
+
+
+def accents(y: np.ndarray, sr: int = SR) -> list:
+    """The hits you actually hear as hits: [{name, t, v}] with t = the attack (±5 ms) and v = real loudness of the hit
+    relative to the song's loud hits (0.3 … 1.3). `hits` above is tuned for pattern grids and is far too sensitive
+    (ghost notes, bleed) to drive visuals; this list is sparse, loudness-true and tightly timed."""
+    from scipy.signal import butter, sosfiltfilt, find_peaks
+    y = np.asarray(y, float)
+    if len(y) < sr:
+        return []
+    w = max(1, int(sr * 0.004))
+    step = max(1, int(sr * 0.002))                      # 2 ms envelope
+    def envelope(lo, hi):
+        sos = butter(4, [lo, min(hi, sr / 2 - 100)], btype="band", fs=sr, output="sos")
+        z = np.abs(sosfiltfilt(sos, y))
+        return np.convolve(z, np.ones(w) / w, "same")[::step]
+    fs = sr / step
+    hi_env = envelope(1500, 9000)
+    out = []
+    for name, lo, hi in ACCENT_BANDS:
+        e = envelope(lo, hi)
+        if e.max() <= 1e-6:
+            out.append({"name": name, "t": [], "v": []})
+            continue
+        pk, _ = find_peaks(e, distance=int(0.09 * fs), prominence=0.12 * np.percentile(e, 99.5))
+        if not len(pk):
+            out.append({"name": name, "t": [], "v": []})
+            continue
+        ref = np.percentile(e[pk], 90) + 1e-9
+        ts, vs = [], []
+        for i in pk:
+            v = e[i] / ref
+            if v < 0.3:
+                continue
+            a = max(0, i - int(0.07 * fs))
+            seg = e[a:i + 1]
+            floor = seg.min()
+            if e[i] - floor < 0.5 * e[i]:               # no real attack: a sustained tail, not a hit
+                continue
+            if name == "snare" and hi_env[a:i + int(0.03 * fs)].max() < 0.25 * np.percentile(hi_env, 95):
+                continue                                # a snare needs noise up top (otherwise it is a tom / kick body)
+            thr = floor + 0.3 * (e[i] - floor)
+            j = i
+            while j > a and e[j - 1] > thr:
+                j -= 1
+            ts.append(j / fs)
+            vs.append(min(1.3, v))
+        out.append({"name": name, "t": rnd(np.array(ts), 3), "v": rnd(np.array(vs), 2)})
+    return out
 
 
 def _ids(pats):

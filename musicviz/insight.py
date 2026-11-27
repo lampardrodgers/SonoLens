@@ -662,8 +662,11 @@ def enrich(rid_dir: Path, force: bool = False) -> bool:
     if not p.exists():
         return False
     A = json.loads(p.read_text(encoding="utf-8"))
+    acc = _backfill_accents(A, Path(rid_dir))
     if not force and A.get("insight", {}).get("version") == INSIGHT_VERSION:
-        return False
+        if acc:
+            _atomic_json(p, A)
+        return acc
     A["insight"] = analyze(A, Path(rid_dir))
     _atomic_json(p, A)
     mp = Path(rid_dir) / "meta.json"
@@ -672,6 +675,25 @@ def enrich(rid_dir: Path, force: bool = False) -> bool:
         meta["portrait"] = A["insight"].get("portrait")
         _atomic_json(mp, meta)
     return True
+
+
+def _backfill_accents(A: dict, rid_dir: Path) -> bool:
+    """Older results have no drums.accents (loudness-true hit list used by the 流光 scene): compute it from the drum stem."""
+    d = A.get("drums")
+    if not d or "accents" in d:
+        return False
+    src = next(iter(sorted((rid_dir / "audio" / "stems").glob("drums.*"))), None)
+    if src is None:
+        return False
+    try:
+        import librosa
+        from .common import SR
+        from .drums import accents
+        y, _ = librosa.load(str(src), sr=SR, mono=True)
+        d["accents"] = accents(y)
+        return True
+    except Exception:
+        return False
 
 
 def _atomic_json(path: Path, obj) -> None:
