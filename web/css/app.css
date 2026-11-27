@@ -430,7 +430,102 @@ svg.cof .key-on text { fill: #fff; font-weight: 700; }
 .scene-tl i { font-style: normal; color: #8b857b; font-variant-numeric: tabular-nums; }
 .scene-tl b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
 .scene-tl em { font-style: normal; font-size: 10px; color: #140e0a; background: #E8C06A; border-radius: 3px; padding: 0 4px; margin-left: auto; }
-.scene-wrap:fullscreen { background: #0a0807; padding: 12px; overflow: auto; }
-.scene-wrap:fullscreen .scene-side { max-height: calc(100vh - 24px); }
-.scene-wrap:fullscreen .scene-cv { max-width: calc((100vh - 24px) * 1340 / 790); }
+.scene-fsbar { display: none; }
+.scene-wrap:fullscreen { background: #0a0807; padding: 12px; display: flex; flex-direction: column; gap: 10px; color: #d9cfbd; }
+.scene-wrap:fullscreen .scene-views { flex: 1; min-height: 0; overflow: auto; }
+.scene-wrap:fullscreen .scene-side { max-height: calc(100vh - 80px); }
+.scene-wrap:fullscreen .scene-cv { max-width: calc((100vh - 80px) * 1340 / 790); }
+.scene-wrap:fullscreen .scene-fsbar { display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 6px; flex: none; }
+.scene-fs-btn { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 999px; border: 1px solid #3a332c; background: #14100d; color: #d9cfbd; cursor: pointer; white-space: nowrap; }
+.scene-fs-btn:hover { border-color: #E8C06A; color: #E8C06A; }
+.scene-fs-btn.play { width: 38px; padding: 4px 0; color: #E8C06A; }
+.scene-fs-time { font-size: 12px; font-variant-numeric: tabular-nums; color: #8b857b; min-width: 38px; text-align: center; }
+.scene-fs-track { position: relative; flex: 1; height: 18px; cursor: pointer; touch-action: none; }
+.scene-fs-track::before { content: ''; position: absolute; left: 0; right: 0; top: 8px; height: 3px; border-radius: 2px; background: rgba(232,192,106,0.18); }
+.scene-fs-fill { position: absolute; left: 0; top: 8px; height: 3px; border-radius: 2px; background: #E8C06A; pointer-events: none; }
+.scene-fs-fill::after { content: ''; position: absolute; right: -5px; top: -4px; width: 11px; height: 11px; border-radius: 50%; background: #F5D98F; }
+.scene-fs-ticks i { position: absolute; top: 4px; width: 1px; height: 11px; background: rgba(232,192,106,0.5); pointer-events: none; }
+.scene-wrap:fullscreen .scene-seg { border-color: #3a332c; }
+.scene-wrap:fullscreen .scene-chip { color: #d9cfbd; }
+.scene-wrap:fullscreen .scene-chip.on { background: #E8C06A; color: #140e0a; }
 .scene-card-host { scroll-margin-top: 158px; }
+
+/* ================================================================ 声河 Sound River */
+.river-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 10px; }
+.river-bar .grow { flex: 1; }
+.river-bar .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.river-bar .seg .btn { border: 0; border-radius: 0; padding: 4px 12px; }
+.river-bar .seg .btn + .btn { border-left: 1px solid var(--border); }
+.river-lvl { font-size: 12px; color: var(--ink-2); }
+.river-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .river-wrap { grid-template-columns: 1fr; } }
+.river-main { padding: 8px 6px 4px; margin: 0; }
+.river-canvas { position: relative; width: 100%; user-select: none; }
+.river-canvas canvas { position: absolute; left: 0; top: 0; }
+.river-canvas canvas.over { cursor: crosshair; }
+.river-x { margin: 0; padding: 12px 14px; font-size: 12.5px; position: sticky; top: 130px; max-height: calc(100vh - 210px); overflow: auto; }
+.river-x .x-head { font-size: 13px; margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+.river-x .x-sec { padding: 6px 0 8px; border-bottom: 1px solid var(--grid); margin-bottom: 6px; }
+.river-x .x-diff { background: var(--surface-2); border-radius: 6px; padding: 6px 8px; margin: 4px 0 8px; }
+.river-x .x-diff ul { margin: 4px 0 0; padding-left: 16px; color: var(--ink-2); }
+.river-x .x-diff li { margin: 1px 0; }
+.river-x .x-row { display: grid; grid-template-columns: 38px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--grid); }
+.river-x .x-l { color: var(--muted); font-size: 11.5px; }
+.river-x .x-big { font-size: 15px; font-family: var(--num); }
+.river-x .chip, .cad .chip { color: #fff; border: 0; padding: 0 7px; line-height: 18px; font-size: 11px; margin: 0 4px 0 0; }
+.river-x .sm, .river-cards .sm { font-size: 11.5px; margin-top: 2px; }
+.x-meter { display: flex; flex-direction: column; gap: 3px; }
+.x-m { display: grid; grid-template-columns: 28px 1fr 24px; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.x-m .mb, .x-stem .b, .sec-ten { height: 6px; background: var(--surface-3); border-radius: 3px; overflow: hidden; display: block; }
+.x-m .mb span, .x-stem .b span, .sec-ten span { display: block; height: 100%; border-radius: 3px; }
+.x-m .mv { text-align: right; font-family: var(--num); }
+.x-stems { display: flex; flex-direction: column; gap: 3px; }
+.x-stem { display: grid; grid-template-columns: 8px 52px 1fr 44px; align-items: center; gap: 6px; font-size: 11.5px; }
+.x-stem i { width: 8px; height: 8px; border-radius: 2px; }
+.x-stem .v { text-align: right; color: var(--muted); font-family: var(--num); font-size: 10.5px; }
+.x-stem.off { opacity: 0.4; }
+.x-warn { color: var(--warning); font-size: 11.5px; padding: 5px 0; }
+.x-links { padding-top: 8px; color: var(--muted); font-size: 11.5px; }
+.x-links a { color: var(--accent); margin-right: 8px; text-decoration: none; }
+.x-links a:hover { text-decoration: underline; }
+.river-legend { margin: 8px 0 14px; flex-wrap: wrap; }
+.river-legend .sep { width: 1px; height: 12px; background: var(--axis); margin: 0 4px; }
+.river-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
+.river-cards > .card { margin: 0; }
+.portrait-wrap { display: flex; justify-content: center; padding: 6px 0; }
+.sec-rows { display: flex; flex-direction: column; }
+.sec-row { display: grid; grid-template-columns: 34px 120px 60px 1fr; gap: 10px; align-items: center; padding: 7px 4px; border-bottom: 1px solid var(--grid); cursor: pointer; }
+.sec-row:hover { background: var(--surface-2); }
+.sec-row .pill { text-align: center; }
+.sec-diff { display: flex; flex-wrap: wrap; gap: 4px; }
+.sec-diff .tag { font-size: 11px; background: var(--surface-3); border-radius: 4px; padding: 1px 6px; color: var(--ink-2); }
+.cad-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.cad { padding: 4px 4px; border-radius: 4px; cursor: pointer; font-size: 12.5px; }
+.cad:hover { background: var(--surface-2); }
+.cad b { font-family: var(--num); margin-right: 4px; }
+.stack-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 6px 0 4px; }
+.groove { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.g-row { display: grid; grid-template-columns: 78px 1fr 110px; gap: 10px; align-items: center; font-size: 12px; }
+.g-row .v { text-align: right; font-family: var(--num); color: var(--ink-2); font-size: 11.5px; }
+.g-axis { position: relative; height: 16px; background: var(--surface-2); border-radius: 4px; }
+.g-zero { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--axis); }
+.g-std { position: absolute; top: 5px; height: 6px; background: rgba(232,192,106,0.3); border-radius: 3px; }
+.g-dot { position: absolute; top: 3px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--gold, #e8c06a); }
+.mask-row { margin-bottom: 10px; font-size: 12.5px; }
+.mask-strip { width: 100%; height: 14px; border-radius: 3px; margin-top: 4px; cursor: pointer; display: block; }
+.sc-row { display: flex; gap: 14px; align-items: center; font-size: 12.5px; }
+.sc-curve { width: 240px; height: 70px; background: var(--surface-2); border-radius: 6px; flex: none; }
+/* library portraits (专辑墙) */
+.lib-card.has-portrait { display: grid; grid-template-columns: 84px 1fr; column-gap: 14px; align-items: center; }
+.lib-card.has-portrait .portrait-thumb { grid-row: 1 / span 3; }
+.lib-card.has-portrait .t, .lib-card.has-portrait .m, .lib-card.has-portrait .k { grid-column: 2; }
+.lib-card.has-portrait .k { flex-wrap: wrap; gap: 2px 12px; margin-top: 6px; }
+.lib-card.has-portrait .k span { white-space: nowrap; }
+
+/* 3D 声河 standalone page */
+.fly-wrap { background: #050404; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
+.fly-cv { display: block; cursor: pointer; }
+.fly-bar { align-self: stretch; display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; background: #0a0807; }
+.fly-bar .scene-fs-track { flex: 1; }
+.fly-chap { color: #E8C06A; font-size: 12px; white-space: nowrap; min-width: 80px; text-align: right; }
+.fly-wrap:fullscreen { justify-content: center; border-radius: 0; }

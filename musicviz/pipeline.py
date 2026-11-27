@@ -11,7 +11,7 @@ from typing import Callable
 import librosa
 import numpy as np
 
-from . import audio_io, drums, harmony, loudness, melody, rhythm, spectral, stems, stereo, story, structure, transcribe
+from . import audio_io, drums, harmony, insight, loudness, melody, rhythm, spectral, stems, stereo, story, structure, transcribe
 from .common import FPS, HOP, NOTE_NAMES, SR, SR_HI, Store, rnd, write_json
 
 VERSION = 1
@@ -323,6 +323,10 @@ def run(src: Path, results_root: Path, opts: dict | None = None,
         A["summary"] = summary_text(A)
     except Exception:  # noqa: BLE001
         errors["summary"] = traceback.format_exc()
+    try:
+        A["insight"] = insight.analyze(A, out)
+    except Exception:  # noqa: BLE001
+        errors["insight"] = traceback.format_exc()
     A["errors"] = errors
     A["timings"] = timings
     A["created"] = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -331,7 +335,8 @@ def run(src: Path, results_root: Path, opts: dict | None = None,
         "id": rid, "title": A["meta"].get("title"), "artist": A["meta"].get("artist"), "file_name": src.name,
         "duration": A["meta"]["duration"], "bpm": A.get("rhythm", {}).get("bpm"),
         "key": A.get("harmony", {}).get("key", {}).get("name"), "lufs": A.get("loudness", {}).get("integrated_lufs"),
-        "created": A["created"], "options": opts, "errors": list(errors.keys())})
+        "created": A["created"], "options": opts, "errors": list(errors.keys()),
+        "portrait": A.get("insight", {}).get("portrait")})
     P.end()
     if progress_cb:
         progress_cb(1.0, "完成")

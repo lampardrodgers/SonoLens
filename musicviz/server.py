@@ -31,10 +31,26 @@ app = FastAPI(title="SonoLens 声镜")
 @app.middleware("http")
 async def _no_cache_ui(request, call_next):
     resp = await call_next(request)
-    if request.url.path.startswith("/web/"):
-        resp.headers["Cache-Control"] = "no-cache"  # always revalidate UI code
+    path = request.url.path
+    if path.startswith("/web/") or (path.startswith("/results/") and path.endswith(".json")):
+        resp.headers["Cache-Control"] = "no-cache"  # always revalidate UI code / analysis json
     return resp
 _pool = ThreadPoolExecutor(max_workers=1)  # one GPU job at a time
+
+
+def _enrich_all():
+    """Bring older results up to the current insight layer (cheap: no audio is decoded)."""
+    from .insight import enrich
+    for d in sorted(RESULTS.iterdir()):
+        if (d / "analysis.json").exists():
+            try:
+                if enrich(d):
+                    print(f"[insight] enriched {d.name}")
+            except Exception:  # noqa: BLE001
+                print(f"[insight] {d.name} failed:\n{traceback.format_exc()}")
+
+
+_pool.submit(_enrich_all)
 _jobs: dict[str, dict] = {}
 _lock = threading.Lock()
 

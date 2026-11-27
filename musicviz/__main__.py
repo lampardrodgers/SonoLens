@@ -1,4 +1,5 @@
 """CLI:  python -m musicviz analyze song.mp3 [--stems htdemucs_6s|htdemucs|htdemucs_ft|none] [--no-midi]
+         python -m musicviz enrich [ids…] [--force]
          python -m musicviz serve [--port 44100]"""
 import argparse
 import sys
@@ -18,6 +19,10 @@ def main():
     a.add_argument("--no-melody", action="store_true")
     a.add_argument("--force", action="store_true")
     a.add_argument("--out", default=str(ROOT / "results"))
+    e = sub.add_parser("enrich", help="(re)compute the theory/production insight layer for existing results")
+    e.add_argument("ids", nargs="*", help="result ids (default: all)")
+    e.add_argument("--force", action="store_true")
+    e.add_argument("--out", default=str(ROOT / "results"))
     s = sub.add_parser("serve", help="start the web UI")
     s.add_argument("--port", type=int, default=44100)
     s.add_argument("--host", default="127.0.0.1")
@@ -36,6 +41,14 @@ def main():
             rid = run(Path(f), Path(args.out), {"stems_model": args.stems, "transcribe": not args.no_midi,
                                                "melody": not args.no_melody}, cb, force=args.force)
             print(f"done {f} -> results/{rid}  ({time.time()-t:.1f}s)")
+    elif args.cmd == "enrich":
+        from .insight import enrich
+        root = Path(args.out)
+        ids = args.ids or sorted(p.name for p in root.iterdir() if (p / "analysis.json").exists())
+        for rid in ids:
+            t = time.time()
+            done = enrich(root / rid, force=args.force)
+            print(f"{rid}: {'updated' if done else 'up to date'} ({time.time()-t:.1f}s)")
     else:
         import uvicorn
         uvicorn.run("musicviz.server:app", host=args.host, port=args.port, log_level="info")

@@ -4,11 +4,12 @@ import { W, H, PAL, F as FONT, TONE, Feed, text, line, circle, glowDot, roundRec
 import { scenesA } from './scenes_a.js';
 import { scenesB, drawTitle, drawFinale } from './scenes_b.js';
 import { scenesC } from './scenes_c.js';
+import { river3d } from './river3d.js';
 import { Player } from '../player.js';
 import { h } from '../util.js';
 import { AI, openSettings } from '../ai.js';
 
-export const SCENES = { ...scenesA, ...scenesB, ...scenesC };
+export const SCENES = { ...scenesA, ...scenesB, ...scenesC, river3d };
 export const SCENE_LIST = [
   ['pianoroll', '音高卷帘'], ['chromaclock', '音级时钟'], ['rhythmspiral', '节奏螺旋'], ['spectrumbars', '实时频谱'],
   ['chordorbit', '和弦轨道'], ['keytrail', '调性中心轨迹'], ['oscilloscope', '示波器'], ['ridgeline', '频谱山脊'],

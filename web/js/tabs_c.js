@@ -9,7 +9,7 @@ import { SCENES, SCENE_LIST } from './cinema/stage.js';
 import { Feed, PAL, F as FONT, text, line, rgba as rgbaC } from './cinema/fx.js';
 
 // ------------------------------------------------------------------ immersive scene stage (cinema scenes, live)
-const NEW_SCENES = ['audioring', 'particles', 'mixer', 'chordpiano', 'melody', 'beatpulse', 'stereofield', 'loudmeter', 'kaleido', 'tunnel', 'strings'];
+const NEW_SCENES = ['river3d', 'audioring', 'particles', 'mixer', 'chordpiano', 'melody', 'beatpulse', 'stereofield', 'loudmeter', 'kaleido', 'tunnel', 'strings'];
 function sceneStage(root, A, isActive) {
   const LW = 1340, LH = 790, R = { x: 70, y: 110, w: 1200, h: 640 };          // single view
   const TW = 1320, TH = 740, TR = { x: 60, y: 60, w: 1200, h: 640 };          // grid tile
@@ -23,7 +23,7 @@ function sceneStage(root, A, isActive) {
 
   // ---- toolbar (card header): view switch + fullscreen
   const vBtn = (v, txt) => h('button', { class: 'scene-chip mode', 'data-v': v, onclick: () => setView(v) }, txt);
-  const seg = h('div', { class: 'scene-seg' }, vBtn('single', '单场景'), vBtn('grid', `全景 · ${order.length} 宫格`));
+  const seg = h('div', { class: 'scene-seg' }, vBtn('single', '单场景'), vBtn('grid', `全景 · ${order.length - 1} 宫格`));
   const fsBtn = h('button', { class: 'btn ghost sm', title: '全屏', onclick: () => (document.fullscreenElement ? document.exitFullscreen() : wrap.requestFullscreen?.()).catch?.(() => {}) }, '⛶ 全屏');
   body.tools.prepend(seg, fsBtn);
 
@@ -41,7 +41,7 @@ function sceneStage(root, A, isActive) {
 
   // ---- grid view: one labelled tile per scene
   const gridEl = h('div', { class: 'scene-grid' });
-  const tiles = order.map(k => {
+  const tiles = order.filter(k => k !== 'river3d').map(k => {
     const c = h('canvas');
     const el = h('div', { class: 'scene-tile' + (NEW_SCENES.includes(k) ? ' new' : ''), title: '点击放大', onclick: () => { pick(k); setView('single'); } },
       h('div', { class: 'scene-tl' }, h('i', {}, num(k)), h('b', {}, label(k)), NEW_SCENES.includes(k) ? h('em', {}, '新') : null), c);
@@ -50,14 +50,26 @@ function sceneStage(root, A, isActive) {
     new IntersectionObserver(es => { tl.vis = es[0].isIntersecting; }).observe(el);
     return tl;
   });
-  const wrap = h('div', { class: 'scene-wrap' }, single, gridEl);
+  // ---- fullscreen-only control bar (the page header & player footer are hidden in fullscreen)
+  const fsPlay = h('button', { class: 'scene-fs-btn play', title: '播放/暂停（空格）', onclick: () => Player.toggle() }, '▶');
+  const fsCur = h('span', { class: 'scene-fs-time' }, '0:00'), fsDur = h('span', { class: 'scene-fs-time' }, '0:00');
+  const fsFill = h('div', { class: 'scene-fs-fill' }), fsTicks = h('div', { class: 'scene-fs-ticks' });
+  const fsTrack = h('div', { class: 'scene-fs-track', title: '点击或拖动跳转' }, fsTicks, fsFill);
+  const seekAt = e => { const r = fsTrack.getBoundingClientRect(), d = Player.duration(); if (d) Player.seek(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * d); };
+  fsTrack.addEventListener('pointerdown', e => { fsTrack.setPointerCapture(e.pointerId); seekAt(e); fsTrack.onpointermove = seekAt; });
+  fsTrack.addEventListener('pointerup', () => { fsTrack.onpointermove = null; });
+  const fsSeg = h('div', { class: 'scene-seg' }, vBtn('single', '单场景'), vBtn("grid", `全景 · ${order.length - 1}`));
+  const fsExit = h('button', { class: 'scene-fs-btn', title: '退出全屏（Esc）', onclick: () => document.exitFullscreen?.().catch(() => {}) }, '✕ 退出全屏');
+  const fsBar = h('div', { class: 'scene-fsbar' }, fsPlay, fsCur, fsTrack, fsDur, fsSeg, fsExit);
+  const segs = [seg, fsSeg];
+  const wrap = h('div', { class: 'scene-wrap' }, h('div', { class: 'scene-views' }, single, gridEl), fsBar);
   body.append(wrap);
   body.closest('.card')?.classList.add('scene-card-host');
 
   function layoutGrid() {
     if (view !== 'grid') return;
     const fs = document.fullscreenElement === wrap;
-    const W = gridEl.clientWidth || wrap.clientWidth, Hav = fs ? window.innerHeight - 24 : Math.max(420, window.innerHeight - 312);
+    const W = gridEl.clientWidth || wrap.clientWidth, Hav = fs ? window.innerHeight - 24 - fsBar.offsetHeight - 10 : Math.max(420, window.innerHeight - 312);
     let best = 3;
     for (let cols = 3; cols <= 10; cols++) {
       best = cols;
@@ -69,7 +81,7 @@ function sceneStage(root, A, isActive) {
   function setView(v) {
     view = v;
     single.hidden = v !== 'single'; gridEl.hidden = v !== 'grid';
-    seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+    segs.forEach(sg => sg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v)));
     layoutGrid();
     if (setView.ready && !document.fullscreenElement) wrap.closest('.card')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
     setView.ready = true;
@@ -83,7 +95,17 @@ function sceneStage(root, A, isActive) {
   window.addEventListener('resize', layoutGrid);
   document.addEventListener('fullscreenchange', layoutGrid);
   pick(sel); setView('single');
-  new Feed(A).load().then(f => { F = f; });
+  new Feed(A).load().then(f => {
+    F = f;
+    fsTicks.replaceChildren(...(F.chapters || []).filter(c => c.start > 0.5).map(c => h('i', { style: `left:${(c.start / F.dur) * 100}%`, title: `${c.roman || ''} ${c.name || ''}` })));
+  });
+  const updBar = () => {
+    if (document.fullscreenElement !== wrap) return;
+    const t = Player.time(), d = Player.duration() || F?.dur || 0;
+    fsFill.style.width = (d ? Math.min(100, t / d * 100) : 0) + '%';
+    fsCur.textContent = fmtTime(t, 0); fsDur.textContent = fmtTime(d, 0);
+    const pl = Player.playing ? '❚❚' : '▶'; if (fsPlay.textContent !== pl) fsPlay.textContent = pl;
+  };
   let visible = true;
   new IntersectionObserver(es => { visible = es[0].isIntersecting; }).observe(wrap);
 
@@ -108,6 +130,7 @@ function sceneStage(root, A, isActive) {
   function frame(ts) {
     if (!document.body.contains(root)) { window.removeEventListener('resize', layoutGrid); document.removeEventListener('fullscreenchange', layoutGrid); return; }
     requestAnimationFrame(frame);
+    updBar();
     if (!isActive() || !visible || !F) return;
     const now = ts / 1000, dt = Math.min(0.1, Math.max(0, now - (lastNow || now))); lastNow = now;
     const t = Player.time(), [ci, ch] = ctx(t);

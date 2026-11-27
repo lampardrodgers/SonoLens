@@ -11,8 +11,13 @@ import * as TB from './tabs_b.js';
 import * as TC from './tabs_c.js';
 import { Cinema } from './cinema/stage.js';
 import { aiTab, openSettings } from './ai.js';
+import { river } from './river.js';
+import { fly } from './fly.js';
+import { portraitThumb } from './portrait.js';
 
 const TABS = [
+  { id: 'river', label: '声河', ico: '≈', fn: river, need: A => A.insight },
+  { id: 'fly', label: '3D 声河', ico: '◆', fn: (root, A) => fly(root, A, () => current === 'fly' && !$('#view').hidden), need: A => A.insight },
   { id: 'overview', label: '总览', ico: '◎', fn: TA.overview },
   { id: 'loudness', label: '波形 / 响度', ico: '∿', fn: TA.loudness },
   { id: 'spectrum', label: '频谱', ico: '▦', fn: TA.spectrum },
@@ -28,6 +33,7 @@ const TABS = [
   { id: 'export', label: '导出 / 诊断', ico: '⇩', fn: TC.exportTab },
 ];
 let current = null;
+const defaultTab = () => D.A?.insight ? 'river' : 'overview';
 const built = new Map();
 
 // ------------------------------------------------------------------ theme & global settings
@@ -56,7 +62,7 @@ async function route() {
   if (m) {
     $('#home').hidden = true; $('#view').hidden = false;
     if (D.id !== m[1]) { closeCinema(); await openAnalysis(m[1]); }
-    showTab(m[2] && TABS.some(t => t.id === m[2]) ? m[2] : current || 'overview', false);
+    showTab(m[2] && TABS.some(t => t.id === m[2]) ? m[2] : current || defaultTab(), false);
     if (m[2] === 'cinema') openCinema(); else closeCinema();
   } else {
     closeCinema();
@@ -73,7 +79,7 @@ let cinema = null, playerReady = Promise.resolve();
 async function openCinema() {
   if (cinema) return;
   const id = D.id;
-  cinema = new Cinema(D.A, { onExit: () => { cinema = null; location.hash = `#/a/${id}/${current || 'overview'}`; } });
+  cinema = new Cinema(D.A, { onExit: () => { cinema = null; location.hash = `#/a/${id}/${current || defaultTab()}`; } });
   const c = cinema;
   await playerReady.catch(() => {});
   if (cinema !== c) return;
@@ -139,7 +145,8 @@ async function refreshLibrary() {
       if (D.id === it.id) D.id = null;
       refreshLibrary();
     };
-    const card = h('div', { class: 'lib-card' },
+    const card = h('div', { class: 'lib-card' + (it.portrait ? ' has-portrait' : '') },
+      it.portrait ? portraitThumb(it.portrait, 84) : null,
       h('div', { class: 't', title: it.file_name }, it.title || it.file_name), del,
       h('div', { class: 'm' }, [it.artist, it.file_name, it.created].filter(Boolean).join(' · ')),
       h('div', { class: 'k' },
