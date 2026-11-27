@@ -13,7 +13,7 @@ const NEW_SCENES = ['river3d', 'audioring', 'particles', 'mixer', 'chordpiano', 
 function sceneStage(root, A, isActive) {
   const LW = 1340, LH = 790, R = { x: 70, y: 110, w: 1200, h: 640 };          // single view
   const TW = 1320, TH = 740, TR = { x: 60, y: 60, w: 1200, h: 640 };          // grid tile
-  const body = card(root, '沉浸场景 · 29 种', '影院模式的全部动态场景，播放时实时演出。<b>★ 为新增场景</b>。', { cls: 'scene-card', png: false });
+  const body = card(root, '沉浸场景 · 30 种', '全部动态场景（含 3D 声河），播放时实时演出。<b>★ 为新增场景</b>。', { cls: 'scene-card', png: false });
   const names = Object.fromEntries(SCENE_LIST);
   const order = [...NEW_SCENES, ...SCENE_LIST.map(x => x[0]).filter(k => !NEW_SCENES.includes(k))].filter(k => SCENES[k]);
   const label = k => (names[k] || SCENES[k].title).replace(/\s*[✦★]$/, '');
@@ -23,7 +23,7 @@ function sceneStage(root, A, isActive) {
 
   // ---- toolbar (card header): view switch + fullscreen
   const vBtn = (v, txt) => h('button', { class: 'scene-chip mode', 'data-v': v, onclick: () => setView(v) }, txt);
-  const seg = h('div', { class: 'scene-seg' }, vBtn('single', '单场景'), vBtn('grid', `全景 · ${order.length - 1} 宫格`));
+  const seg = h('div', { class: 'scene-seg' }, vBtn('single', '单场景'), vBtn('grid', `全景 · ${order.length} 宫格`));
   const fsBtn = h('button', { class: 'btn ghost sm', title: '全屏', onclick: () => (document.fullscreenElement ? document.exitFullscreen() : wrap.requestFullscreen?.()).catch?.(() => {}) }, '⛶ 全屏');
   body.tools.prepend(seg, fsBtn);
 
@@ -41,7 +41,7 @@ function sceneStage(root, A, isActive) {
 
   // ---- grid view: one labelled tile per scene
   const gridEl = h('div', { class: 'scene-grid' });
-  const tiles = order.filter(k => k !== 'river3d').map(k => {
+  const tiles = order.map(k => {
     const c = h('canvas');
     const el = h('div', { class: 'scene-tile' + (NEW_SCENES.includes(k) ? ' new' : ''), title: '点击放大', onclick: () => { pick(k); setView('single'); } },
       h('div', { class: 'scene-tl' }, h('i', {}, num(k)), h('b', {}, label(k)), NEW_SCENES.includes(k) ? h('em', {}, '新') : null), c);
@@ -58,7 +58,7 @@ function sceneStage(root, A, isActive) {
   const seekAt = e => { const r = fsTrack.getBoundingClientRect(), d = Player.duration(); if (d) Player.seek(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * d); };
   fsTrack.addEventListener('pointerdown', e => { fsTrack.setPointerCapture(e.pointerId); seekAt(e); fsTrack.onpointermove = seekAt; });
   fsTrack.addEventListener('pointerup', () => { fsTrack.onpointermove = null; });
-  const fsSeg = h('div', { class: 'scene-seg' }, vBtn('single', '单场景'), vBtn("grid", `全景 · ${order.length - 1}`));
+  const fsSeg = h('div', { class: 'scene-seg' }, vBtn('single', '单场景'), vBtn('grid', `全景 · ${order.length}`));
   const fsExit = h('button', { class: 'scene-fs-btn', title: '退出全屏（Esc）', onclick: () => document.exitFullscreen?.().catch(() => {}) }, '✕ 退出全屏');
   const fsBar = h('div', { class: 'scene-fsbar' }, fsPlay, fsCur, fsTrack, fsDur, fsSeg, fsExit);
   const segs = [seg, fsSeg];
@@ -73,7 +73,7 @@ function sceneStage(root, A, isActive) {
     let best = 3;
     for (let cols = 3; cols <= 10; cols++) {
       best = cols;
-      const tw = (W - (cols - 1) * 8) / cols, th = tw * TH / TW + 22;
+      const tw = (W - (cols - 1) * 8) / cols, th = (tw - 2) * TH / TW + 22 + 2;   // + tile border
       if (Math.ceil(order.length / cols) * (th + 8) <= Hav) break;
     }
     gridEl.style.gridTemplateColumns = `repeat(${best}, 1fr)`;
@@ -178,7 +178,7 @@ function fitCanvas(cv, hgt) {
 }
 
 export function live(root, A, isActive) {
-  root.append(h('div', { class: 'tab-title' }, '实时可视化'), h('div', { class: 'tab-sub' }, '播放时实时显示 29 种沉浸场景、频谱、瀑布图、矢量示波器和电平表，并同步显示当前段落 / 和弦 / 小节。按空格播放。'));
+  root.append(h('div', { class: 'tab-title' }, '实时可视化'), h('div', { class: 'tab-sub' }, '播放时实时显示 30 种沉浸场景、频谱、瀑布图、矢量示波器和电平表，并同步显示当前段落 / 和弦 / 小节。按空格播放。'));
   const now = h('div', { class: 'live-now' });
   const mk = l => { const v = h('div', { class: 'v' }, '–'), s = h('div', { class: 's' }, ''); now.append(h('div', { class: 'tile' }, h('div', { class: 'l' }, l), v, s)); return [v, s]; };
   const [secV, secS] = mk('段落'), [chV, chS] = mk('和弦'), [keyV] = mk('调性'), [barV, barS] = mk('小节 . 拍'), [bpmV] = mk('局部 BPM');

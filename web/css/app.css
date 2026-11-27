@@ -432,7 +432,7 @@ svg.cof .key-on text { fill: #fff; font-weight: 700; }
 .scene-tl em { font-style: normal; font-size: 10px; color: #140e0a; background: #E8C06A; border-radius: 3px; padding: 0 4px; margin-left: auto; }
 .scene-fsbar { display: none; }
 .scene-wrap:fullscreen { background: #0a0807; padding: 12px; display: flex; flex-direction: column; gap: 10px; color: #d9cfbd; }
-.scene-wrap:fullscreen .scene-views { flex: 1; min-height: 0; overflow: auto; }
+.scene-wrap:fullscreen .scene-views { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }   /* fixed gutter: a scrollbar appearing must not change the width (that fed back into canvas size → endless shaking) */
 .scene-wrap:fullscreen .scene-side { max-height: calc(100vh - 80px); }
 .scene-wrap:fullscreen .scene-cv { max-width: calc((100vh - 80px) * 1340 / 790); }
 .scene-wrap:fullscreen .scene-fsbar { display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 6px; flex: none; }
@@ -463,7 +463,10 @@ svg.cof .key-on text { fill: #fff; font-weight: 700; }
 .river-canvas { position: relative; width: 100%; user-select: none; }
 .river-canvas canvas { position: absolute; left: 0; top: 0; }
 .river-canvas canvas.over { cursor: crosshair; }
-.river-x { margin: 0; padding: 12px 14px; font-size: 12.5px; position: sticky; top: 130px; max-height: calc(100vh - 210px); overflow: auto; }
+.river-x { margin: 0; padding: 12px 14px; font-size: 12.5px; overflow-y: auto; scrollbar-gutter: stable;
+  /* the river decides the row height; the panel fills it and scrolls, so hovering never resizes the page */
+  align-self: stretch; contain: size; }
+@media (max-width: 1100px) { .river-x { contain: none; height: 420px; } }
 .river-x .x-head { font-size: 13px; margin-bottom: 8px; font-variant-numeric: tabular-nums; }
 .river-x .x-sec { padding: 6px 0 8px; border-bottom: 1px solid var(--grid); margin-bottom: 6px; }
 .river-x .x-diff { background: var(--surface-2); border-radius: 6px; padding: 6px 8px; margin: 4px 0 8px; }
