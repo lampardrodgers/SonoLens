@@ -119,6 +119,10 @@ function makeDna(A) {
     zoom: (0.32 + 0.28 * (d.energy ?? 0.5)) * tf,        // outward drift (1/s)
     turb: lerp(0.13, 0.03, geo) * (0.7 + 0.6 * (d.complexity ?? 0.5)),
     rot: lerp(0.16, 0.07, geo) * tf, grain: lerp(0.032, 0.02, geo),
+    // the song's own colour grade: bright-mood / dark-timbre songs lean amber, dark-mood / bright-timbre songs lean blue;
+    // energetic, danceable, percussive music is saturated like neon, calm acoustic music is pastel
+    tint: (w => mix3([0.90, 0.98, 1.13], [1.13, 1.0, 0.85], w))(clamp(0.5 + 0.9 * ((d.valence ?? 0.5) - 0.5) - 0.6 * ((d.brightness ?? 0.4) - 0.35), 0, 1)),
+    sat: lerp(0.78, 1.32, clamp(0.6 * (d.energy ?? 0.5) + 0.5 * dance + 0.5 * (1 - harm), 0, 1)),
     valence: d.valence ?? 0.5, tags, form: geo > 0.62 ? '几何' : geo > 0.3 ? '晶体流' : '流体',
   };
 }
@@ -154,9 +158,35 @@ class Song {
       }
     }
     this.hasDrums = !!(this.drums.kick || this.drums.snare);
+    // impacts: the few hits that deserve the big effect (shake + refracting ripple). Chosen ahead of time over the whole
+    // song: a loud hit ON a beat, scored up for downbeats, kick+snare together, breaking a silence, or opening a louder
+    // passage — then only the best one per ~4 bars survives.
+    this.impacts = [];
+    {
+      const beats = F.beats || [], bd0 = beats.length > 1 ? (beats[beats.length - 1] - beats[0]) / (beats.length - 1) : 0.5;
+      const all = [];
+      for (const n of ['kick', 'snare']) { const d = this.drums[n]; if (d) d.t.forEach((t, i) => all.push({ t, v: d.v[i], n })); }
+      all.sort((a, b) => a.t - b.t);
+      const cand = [];
+      all.forEach((h, i) => {
+        if (h.v < 0.9 || this.energy(h.t + 0.3) < 0.35) return;
+        const bi = upper(beats, h.t + 0.07) - 1; if (bi < 0 || Math.abs(h.t - beats[bi]) > 0.07) return;
+        const down = F.beatAt(beats[bi] + 0.01).pos === 1;
+        let gap = 9, co = false;
+        for (let j = i - 1; j >= 0; j--) { const dt = h.t - all[j].t; if (dt < 0.05) { if (all[j].n !== h.n && all[j].v >= 0.6) co = true; } else if (all[j].v >= 0.45) { gap = dt; break; } }
+        for (let j = i + 1; j < all.length && all[j].t - h.t < 0.05; j++) if (all[j].n !== h.n && all[j].v >= 0.6) co = true;
+        const rise = clamp((this.energy(h.t + 0.5) - this.energy(h.t - 0.7)) * 2.5, 0, 1);
+        const score = h.v + (down ? 0.35 : 0) + (co ? 0.3 : 0) + (gap > bd0 * 1.5 ? 0.5 : 0) + 0.6 * rise;
+        if (score >= 1.6) cand.push({ t: h.t, score });
+      });
+      cand.sort((a, b) => b.score - a.score);
+      for (const c of cand) if (!this.impacts.some(x => Math.abs(x.t - c.t) < bd0 * 14)) this.impacts.push(c);
+      this.impacts.sort((a, b) => a.t - b.t);
+      this.impT = this.impacts.map(x => x.t);
+    }
     const secs = I.sections?.length ? I.sections : A.structure?.segments || [];
     this.secs = secs.map(s => ({ start: s.start, end: s.end, label: s.label, prime: s.prime || s.label, hint: (s.hint || '').split(' ')[0], occ: s.occurrence || 0 }));
-    const starts = F.bars.map(b => b[0]);
+    const starts = this.barStarts = F.bars.map(b => b[0]);
     for (const s of this.secs) { s.bar0 = upper(starts, s.start - 0.05) ; s.nBars = Math.max(1, upper(starts, s.end - 0.05) - s.bar0); }
     // quietest kind of section drifts, the loudest surges, the ones in between alternate vortex / bloom
     const labels = [...new Set(this.secs.map(s => s.label))];
@@ -177,7 +207,7 @@ class Song {
     this.onset = A.rhythm?.onset_env || null;
     this.stems = STEM_ORDER.map(n => F.stems.find(s => s.name === n)).filter(Boolean);
     this.bassStem = F.stems.find(s => s.name === 'bass') || null;
-    this.cadences = I.cadences || [];
+    this.cadences = (I.cadences || []).slice().sort((a, b) => a.t - b.t);
     this.seed = [...String(A.id || A.meta?.title || 'x')].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 9973, 7) / 97;
   }
   energy(t) { return clamp((this.F.mlufs(t) - this.luLo) / (this.luHi - this.luLo), 0, 1); }
@@ -248,6 +278,7 @@ uniform vec3 uColA, uColB, uColC;
 uniform vec3 uPc[12];
 uniform float uChroma[12];
 uniform vec3 uRp[3];                 // shock ripples: (radius, strength, -)
+uniform vec3 uTint; uniform float uSat;
 uniform float uTime, uNow, uEnergy, uTension, uBeat, uShock, uFlash, uGeo, uSym, uSpin, uGrain, uSeed, uKick, uSnare, uHat, uRipR, uRipA, uRm;
 ${NOISE}
 float starLayer(vec2 q, float seed) {
@@ -309,6 +340,7 @@ void main() {
   col += mix(uColC, vec3(1.0), 0.5) * rim * 0.4;
   col = 1.0 - exp(-col * 1.2);
   col = mix(col, col * col * (3.0 - 2.0 * col), 0.2 + 0.35 * uTension);
+  col = max(mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, uSat), 0.0) * uTint;        // this song's own grade
   col *= mix(1.0, 0.5, smoothstep(0.6, 1.9, length((vUv - 0.5) * vec2(1.15, 1.0) * 2.0)));
   col += (hash(gl_FragCoord.xy + fract(uNow) * 517.0) - 0.5) * uGrain;
   o = vec4(col, 1.0);
@@ -414,7 +446,7 @@ class Engine {
     this.pass(this.pComp, null, { uFb: dst.tex, uB1: this.blurs[1].tex, uB2: this.blurs[5].tex, uB3: this.blurs[9].tex, uInk: this.inkTex },
       { ...geom, uColA: U.colA, uColB: U.colB, uColC: U.colC, uTime: U.time, uNow: U.now, uEnergy: U.energy, uTension: U.tension, uBeat: U.beat,
         uShock: U.shock, uFlash: U.flash, uGeo: U.geo, uSym: U.sym, uSpin: U.spin, uGrain: U.grain, uSeed: U.seed,
-        uKick: U.kick, uSnare: U.snare, uHat: U.hat, uRipR: U.ripR, uRipA: U.ripA, uPc: PC_FIFTHS, uChroma: U.chroma, uRp: U.rp });
+        uKick: U.kick, uSnare: U.snare, uHat: U.hat, uRipR: U.ripR, uRipA: U.ripA, uPc: PC_FIFTHS, uChroma: U.chroma, uRp: U.rp, uTint: U.tint, uSat: U.sat });
   }
 }
 
@@ -424,7 +456,7 @@ const newState = () => ({
   lastT: -9, E: 0, Es: 0.3, T: 0.3, kick: 0, snare: 0, hat: 0, shock: 0, flash: 0, beat: 0, beatIdx: -2, si: -1, flow: 0, spin: 0,
   amp: new Float32Array(NS), raw: new Float32Array(NS), rings: [], sparks: [], lastRing: 0,
   colA: [0.05, 0.05, 0.1], colB: [0.2, 0.2, 0.35], colC: [0.8, 0.7, 0.5], poly: null, polyA: 0, root: null, val: 0.5,
-  fm: { ...FORMS.vortex }, sym: 8, parts: [], band: [0, 0, 0], chrF: new Float32Array(12), stemLv: new Float32Array(8), ripR: 0, ripA: 0, shake: 0, lastShock: -9, lastHit: -9, shocks: [], rp: new Float32Array(9),
+  fm: { ...FORMS.vortex }, sym: 8, parts: [], band: [0, 0, 0], chrF: new Float32Array(12), stemLv: new Float32Array(8), ripR: 0, ripA: 0, shake: 0, lastShock: -9, shocks: [], ii: 0, cadI: 0, cad: null, blooms: [], meteors: [], bolts: [], melLast: -9, rp: new Float32Array(9),
 });
 const turn = d => { d = (d + Math.PI) % TAU; if (d < 0) d += TAU; return d - Math.PI; };       // shortest signed arc
 
@@ -441,26 +473,27 @@ function advance(F, t, now, dt) {
     const r = Math.hypot(x, y) || 1e-3, j = (Math.random() - 0.5) * spread, c = Math.cos(j), sn = Math.sin(j), ux = x / r, uy = y / r;
     st.parts.push({ x, y, vx: (ux * c - uy * sn) * speed, vy: (ux * sn + uy * c) * speed, pc, s, t0: now, life });
   };
-  // The big effect — frame shake + a ripple that bends the whole picture — is kept rare so it stays an event: section
-  // changes, and the hardest hits of the song when they land on a downbeat or break a silence. At least a bar apart.
+  // The big effect — frame shake + a ripple that bends the whole picture — is kept rare so it stays an event:
+  // section changes and the song's pre-chosen impacts (see Song.impacts).
   const bt = F.beatAt(t), bd = 60 / (F.bpmAt(t) || 120);
   const shock = (amp, life) => { st.lastShock = now; st.shocks.push({ t0: now, life, a: amp }); if (st.shocks.length > 3) st.shocks.shift(); st.shake = Math.max(st.shake, Math.min(1, amp)); };
-  const impact = (v, life) => {
-    const gap = now - st.lastHit, since = now - st.lastShock; st.lastHit = now;
-    if (v < 0.95 || st.E < 0.3 || since < bd * 4) return;
-    const down = bt.pos === 1 && bt.since < 0.1, breakIn = gap > bd * 1.5;
-    if (down || breakIn || (v >= 1.2 && since > bd * 8)) shock(clamp(0.55 + 0.4 * v, 0.6, 1.1) * (breakIn ? 1.15 : 1), life);
-  };
   const fire = (name, v) => {
-    if (name === 'kick' && S.hasDrums) impact(v, 0.95); else if (name === 'snare') impact(v, 0.75);
     const w = name === 'hihat' ? v : Math.min(1.15, Math.pow(v, 1.6));      // quiet hits stay quiet: only real hits read as hits
     if (name === 'kick') {
       st.kick = Math.max(st.kick, w);
-      if (v > 0.7 && now - st.lastRing > 0.12) {
+      if (v > 0.8 && now - st.lastRing > 0.12) {
         st.lastRing = now; st.rings.push({ t0: now, life: 0.8, a: 0.42 * w, w: 1 });
         for (let i = 0, n = Math.round(8 + 26 * w); i < n; i++) { const a = Math.random() * TAU; emit(Math.cos(a) * 0.1, Math.sin(a) * 0.1, -1, 0.45 + 0.75 * Math.random(), 0.7 + 0.8 * Math.random(), 0.7 + 0.9 * Math.random(), 0.25); }
       }
-    } else if (name === 'snare') { st.snare = Math.max(st.snare, w); st.shock = Math.max(st.shock, 0.75 * w); }
+    } else if (name === 'snare') {
+      st.snare = Math.max(st.snare, w); st.shock = Math.max(st.shock, 0.75 * w);
+      if (w > 0.55 && (st.T > 0.55 || st.E > 0.75)) {       // tense or loud passages: the snare strikes lightning from the core to the loudest notes
+        const top = []; for (let s2 = 0; s2 < NS; s2++) if (st.amp[s2] > 0.3) top.push(s2);
+        top.sort((x, y) => st.amp[y] - st.amp[x]);
+        for (const s2 of top.slice(0, 2)) st.bolts.push({ a: pcAngle((MIDI0 + s2) % 12), r: lerp(R_IN, R_OUT, pitchK(s2)), pc: (MIDI0 + s2) % 12, t0: now, life: 0.2 });
+        if (st.bolts.length > 4) st.bolts.splice(0, st.bolts.length - 4);
+      }
+    }
     else if (name === 'hihat') {
       st.hat = Math.max(st.hat, v);
       for (let i = 0, n = 2 + Math.round(v * 3); i < n && st.sparks.length < 90; i++) st.sparks.push({ a: Math.random() * TAU, r: 0.26 + Math.random() * 0.68, t0: now, life: 0.18 + Math.random() * 0.2, s: 0.5 + Math.random() * v });
@@ -470,6 +503,15 @@ function advance(F, t, now, dt) {
     const d = S.drums[name]; if (!d) continue;
     if (seek) d.i = upper(d.t, t);
     else while (d.i < d.t.length && d.t[d.i] <= t + 0.02) fire(name, d.v[d.i++]);      // 20 ms early ≈ the frame it lands on
+  }
+  if (seek) { st.ii = upper(S.impT, t); st.cadI = upper(S.cadences.map(c => c.t), t); }
+  else {
+    while (st.ii < S.impT.length && S.impT[st.ii] <= t + 0.02) shock(clamp(0.45 + 0.3 * S.impacts[st.ii++].score, 0.7, 1.1), 0.95);
+    while (st.cadI < S.cadences.length && S.cadences[st.cadI].t <= t) {          // cadence: a golden halo at the rim, sparks all around
+      const cd = S.cadences[st.cadI++], sg = clamp(cd.strength ?? 0.5, 0.25, 1);
+      st.cad = { t0: now, life: 2.4, s: sg };
+      for (let i = 0, n = Math.round(30 + 50 * sg); i < n; i++) { const a = Math.random() * TAU; emit(Math.cos(a) * 0.8, Math.sin(a) * 0.8, -1, 0.05 + 0.2 * Math.random(), 0.7 + 0.7 * Math.random(), 1.4 + 1.6 * Math.random(), 1.2); }
+    }
   }
   if (bt.idx !== st.beatIdx) {
     if (!seek && bt.idx >= 0) { st.beat = bt.pos === 1 ? 1 : 0.55; if (!S.hasDrums) fire('kick', bt.pos === 1 ? 1 : 0.6); }
@@ -488,8 +530,13 @@ function advance(F, t, now, dt) {
   // atmosphere: mode of the local key + the song's own valence → warm/cool; energy and tension do the rest
   const key = F.keyAt(t), minor = key != null && key >= 12;
   st.val = lerp(st.val, clamp(0.55 * (minor ? 0.26 : 0.74) + 0.45 * D.valence, 0, 1), seek ? 1 : k(1.2));
-  const [cA, cB] = moodColors(st.val, clamp(st.Es * 0.7 + st.E * 0.3, 0, 1), st.T);
+  let [cA, cB] = moodColors(st.val, clamp(st.Es * 0.7 + st.E * 0.3, 0, 1), st.T);
+  if (key != null) { const tc = PC_RGB[key % 12]; cA = mix3(cA, tc.map(v => v * 0.32), 0.3); cB = mix3(cB, tc.map(v => v * 0.8), 0.22); }   // the key's own colour tints the air
   const ci = F.chordIdx(t), chord = ci >= 0 && F.chords[ci].label !== 'N' && QI[F.chords[ci].quality] ? F.chords[ci] : null;
+  if (!seek && st.playing && chord && ci !== st.ci) {       // a new chord blooms: a soft wave in the root's colour, sparks along its tones
+    st.blooms.push({ t0: now, life: 1.7, pc: chord.root }); if (st.blooms.length > 4) st.blooms.shift();
+    for (const iv of QI[chord.quality]) { const pc = (chord.root + iv) % 12, a = pcAngle(pc); for (let i = 0; i < 7; i++) emit(Math.cos(a) * 0.3, Math.sin(a) * 0.3, pc, 0.15 + 0.35 * Math.random(), 0.8 + 0.6 * Math.random(), 1 + 1.2 * Math.random(), 0.5); }
+  }
   st.chord = chord; st.ci = ci;
   const kc = seek ? 1 : k(1.6), ka = seek ? 1 : k(5);
   st.colA = mix3(st.colA, cA, kc); st.colB = mix3(st.colB, cB, kc);
@@ -532,6 +579,13 @@ function advance(F, t, now, dt) {
       emit(Math.cos(ang) * rr, Math.sin(ang) * rr, pc, 0.08 + 0.22 * Math.random() + 0.2 * st.E, 0.6 + a, 1.6 + 2.2 * Math.random());
     }
     const vm = S.pitch(S.mel, t);
+    if (vm != null) {                                     // each new vocal phrase sends a shooting star across the outer sky
+      if (now - st.melLast > 0.45 && st.meteors.length < 4) {
+        const side = Math.random() < 0.5 ? -1 : 1, x = side * (1.15 + 0.6 * Math.random()), y = -(0.25 + 0.7 * Math.random()), sp2 = 1.5 + 0.8 * Math.random(), an = (0.25 + 0.5 * Math.random());
+        st.meteors.push({ x, y, vx: -side * Math.cos(an) * sp2 * 0.55, vy: Math.sin(an) * sp2, pc: ((Math.round(vm) % 12) + 12) % 12, t0: now, life: 0.75 + 0.3 * Math.random() });
+      }
+      st.melLast = now;
+    }
     if (vm != null && Math.random() < dt * 45) {
       const ang = pcAngle(Math.round(vm)), rr = lerp(R_IN, R_OUT, pitchK(vm - MIDI0));
       emit(Math.cos(ang) * rr, Math.sin(ang) * rr, -1, 0.1 + 0.3 * Math.random(), 0.8 + 0.6 * Math.random(), 1.2 + 1.6 * Math.random(), 1.6);
@@ -555,6 +609,9 @@ function advance(F, t, now, dt) {
   st.shocks.forEach((r, i) => { const k = (now - r.t0) / r.life; st.rp[i * 3] = lerp(0.06, 2.4, easeOut(k)); st.rp[i * 3 + 1] = r.a * Math.pow(1 - k, 1.4); });
   if (seek) { st.shocks.length = 0; st.rp.fill(0); st.shake = 0; }
   st.rings = st.rings.filter(r => now - r.t0 < r.life);
+  st.blooms = st.blooms.filter(r => now - r.t0 < r.life); st.meteors = st.meteors.filter(r => now - r.t0 < r.life); st.bolts = st.bolts.filter(r => now - r.t0 < r.life);
+  if (st.cad && now - st.cad.t0 > st.cad.life) st.cad = null;
+  if (seek) { st.blooms.length = st.meteors.length = st.bolts.length = 0; st.cad = null; }
   st.sparks = st.sparks.filter(p => now - p.t0 < p.life);
   st.seek = seek;
 }
@@ -643,6 +700,55 @@ function drawInk(F, t, now, Rm, ox, oy) {
   if (st.poly && st.polyA > 0.02) {
     g.beginPath(); st.poly.forEach((a, i) => { const x = Math.cos(a) * Rm * R_POLY, y = Math.sin(a) * Rm * R_POLY; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath();
     g.globalAlpha = 0.16 * st.polyA; g.strokeStyle = css(st.colC); g.lineWidth = Math.max(1.5, Rm * 0.004); g.stroke();
+  }
+  // constellation: the loudest sounding notes joined in pitch order — the shape of the voicing
+  {
+    const top = []; for (let s = 0; s < NS; s++) if (st.amp[s] > 0.22) top.push(s);
+    if (top.length > 6) { top.sort((x, y) => st.amp[y] - st.amp[x]); top.length = 6; top.sort((x, y) => x - y); }
+    if (top.length > 1) {
+      g.strokeStyle = css(mix3(st.colC, WHITE, 0.6)); g.lineWidth = Math.max(1.2, Rm * 0.0028);
+      for (let i = 1; i < top.length; i++) {
+        const p0 = top[i - 1], p1 = top[i], a0 = pcAngle((MIDI0 + p0) % 12), a1 = pcAngle((MIDI0 + p1) % 12), r0 = Rm * lerp(R_IN, R_OUT, pitchK(p0)) * breathe, r1 = Rm * lerp(R_IN, R_OUT, pitchK(p1)) * breathe;
+        g.globalAlpha = Math.min(0.5, 0.1 + 0.5 * Math.min(st.amp[p0], st.amp[p1])); g.beginPath(); g.moveTo(Math.cos(a0) * r0, Math.sin(a0) * r0); g.lineTo(Math.cos(a1) * r1, Math.sin(a1) * r1); g.stroke();
+      }
+    }
+  }
+  // chord blooms: a wide soft wave in the new root's colour
+  for (const b of st.blooms) {
+    const k = (now - b.t0) / b.life;
+    g.globalAlpha = 0.2 * Math.pow(1 - k, 1.5); g.strokeStyle = css(PC_RGB[b.pc]); g.lineWidth = Rm * 0.07 * (1 - 0.4 * k);
+    g.beginPath(); g.arc(0, 0, Rm * lerp(0.16, 0.98, easeOut(k)), 0, TAU); g.stroke();
+  }
+  // cadence: golden halo at the rim
+  if (st.cad) {
+    const k = (now - st.cad.t0) / st.cad.life, al = st.cad.s * Math.pow(1 - k, 1.3);
+    g.strokeStyle = 'rgb(255,208,120)';
+    g.globalAlpha = 0.22 * al; g.lineWidth = Rm * 0.05; g.beginPath(); g.arc(0, 0, Rm * (0.8 + 0.05 * k), 0, TAU); g.stroke();
+    g.globalAlpha = 0.7 * al; g.lineWidth = Math.max(1.5, Rm * 0.005); g.beginPath(); g.arc(0, 0, Rm * (0.8 + 0.05 * k), 0, TAU); g.stroke();
+  }
+  // bar comet: one lap of the rim per bar
+  {
+    const bs = S.barStarts, bi = upper(bs, t) - 1;
+    if (bi >= 0 && bi < bs.length - 1 && st.playing) {
+      const ph = clamp((t - bs[bi]) / (bs[bi + 1] - bs[bi]), 0, 1), rr = Rm * 1.035;
+      for (let j = 0; j < 14; j++) { const a = -Math.PI / 2 + (ph - j * 0.006) * TAU; dot(j ? sp.pw : sp.white, Math.cos(a) * rr, Math.sin(a) * rr, Rm * (j ? 0.011 * (1 - j / 16) : 0.03), j ? 0.5 * (1 - j / 14) : 0.9); }
+    }
+  }
+  // shooting stars (vocal phrases)
+  for (const m of st.meteors) {
+    const age = now - m.t0, k = age / m.life, x = (m.x + m.vx * age) * Rm, y = (m.y + m.vy * age) * Rm, tx = x - m.vx * Rm * 0.16, ty = y - m.vy * Rm * 0.16, al = Math.sin(Math.PI * Math.min(1, k * 1.15)) ;
+    const gr = g.createLinearGradient(tx, ty, x, y); gr.addColorStop(0, css(PC_RGB[m.pc], 0)); gr.addColorStop(1, css(mix3(PC_RGB[m.pc], WHITE, 0.7), 1));
+    g.globalAlpha = 0.9 * al; g.strokeStyle = gr; g.lineWidth = Math.max(1.6, Rm * 0.0045); g.lineCap = 'round'; g.beginPath(); g.moveTo(tx, ty); g.lineTo(x, y); g.stroke(); g.lineCap = 'butt';
+    dot(sp.white, x, y, Rm * 0.022, 0.9 * al);
+  }
+  // lightning (snare in tense / loud passages)
+  for (const b of st.bolts) {
+    const k = (now - b.t0) / b.life, n = 9, ca = Math.cos(b.a), sa = Math.sin(b.a), r0 = 0.1, jit = 0.035 * Rm;
+    g.beginPath(); g.moveTo(ca * r0 * Rm, sa * r0 * Rm);
+    for (let i = 1; i <= n; i++) { const rr = lerp(r0, b.r, i / n) * Rm, j = i < n ? (Math.random() - 0.5) * 2 * jit : 0; g.lineTo(ca * rr - sa * j, sa * rr + ca * j); }
+    g.strokeStyle = css(mix3(PC_RGB[b.pc], WHITE, 0.7)); g.lineJoin = 'bevel';
+    g.globalAlpha = 0.3 * (1 - k); g.lineWidth = Math.max(4, Rm * 0.012); g.stroke();
+    g.globalAlpha = 0.95 * (1 - k); g.lineWidth = Math.max(1.4, Rm * 0.0035); g.stroke();
   }
   // kick shockwaves (polygons when the style is geometric) and section-change waves
   for (const r of st.rings) {
@@ -817,7 +923,7 @@ export const aura = {
       petal: Math.max(st.fm.petal, 0.45 * D.geo), wave: st.fm.wave, turb: D.turb * st.fm.turb * (0.5 + 1.3 * st.T),
       fade: Math.exp(-dt * Math.LN2 / (D.tau * (0.75 + 0.5 * (1 - st.E)))), gain: 18 * dt,
       geo: D.geo, sym: st.sym, spin: st.spin, grain: D.grain,
-      kick: Math.min(1, st.kick), snare: Math.min(1, st.snare), hat: Math.min(1, st.hat), ripR: st.ripR, ripA: st.ripA, chroma: st.chrF, rp: st.rp,
+      kick: Math.min(1, st.kick), snare: Math.min(1, st.snare), hat: Math.min(1, st.hat), ripR: st.ripR, ripA: st.ripA, chroma: st.chrF, rp: st.rp, tint: D.tint, sat: D.sat,
       colA: st.colA, colB: st.colB, colC: st.colC, energy: st.E, tension: st.T, beat: st.beat, shock: st.shock, flash: st.flash,
     });
     const sh = st.playing ? st.shake : 0, sc = 1 + 0.022 * sh + 0.006 * Math.min(1, st.kick);      // shake + a small zoom punch
